@@ -508,18 +508,42 @@ private final class DragHandleView: NSView, NSDraggingSource {
     required init?(coder: NSCoder) { fatalError() }
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// Brighter under the pointer, like the buttons beside it.
+    private var hovered = false { didSet { needsDisplay = true } }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true }
+    override func mouseExited(with event: NSEvent) { hovered = false }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let box = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2)
-        NSColor.labelColor.withAlphaComponent(0.06).setFill()
+        NSColor.labelColor.withAlphaComponent(hovered ? 0.16 : 0.09).setFill()
         path.fill()
         NSColor.separatorColor.setStroke()
         path.stroke()
         let text = NSAttributedString(string: "≡  Drag Me  ≡", attributes: [
-            .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.secondaryLabelColor,
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor,
         ])
         let size = text.size()
         text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        NSCursor.closedHand.set()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        window?.invalidateCursorRects(for: self)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -531,6 +555,11 @@ private final class DragHandleView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        hovered = false
+        window?.invalidateCursorRects(for: self)
+    }
 }
 
 /// The system share sheet (Messages, Mail, AirDrop…), anchored to its button.
