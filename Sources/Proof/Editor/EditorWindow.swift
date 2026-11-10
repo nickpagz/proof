@@ -468,8 +468,8 @@ private struct EditorBottomBar: View {
 
             ShareSheetButton(model: model).frame(width: 34, height: 28).help("Share…")
             iconButton("doc.on.doc", help: "Copy (⌘C)") { model.copy() }
-            shareButton(.private, symbol: "lock.fill")
-            shareButton(.public, symbol: "globe")
+            shareButton(.private)
+            shareButton(.public)
         }
         .padding(.horizontal, 12)
         .frame(height: 48)
@@ -481,10 +481,11 @@ private struct EditorBottomBar: View {
             .help(help)
     }
 
-    private func shareButton(_ visibility: ShareVisibility, symbol: String) -> some View {
+    /// Titled with the service it uploads to, since either button can use either service.
+    private func shareButton(_ visibility: ShareVisibility) -> some View {
         let available = model.canShare(visibility)
         return Button { model.share(visibility) } label: {
-            Label(visibility.label, systemImage: symbol)
+            Label(model.shareService(visibility) ?? visibility.label, systemImage: "paperplane")
         }
         .disabled(!available || model.isUploading)
         .help(available ? model.shareHelp(visibility) : "Choose a \(visibility == .private ? "private" : "public") destination in Settings → Sharing")

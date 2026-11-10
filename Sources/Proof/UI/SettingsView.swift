@@ -167,17 +167,17 @@ private struct SharingSettings: View {
     var body: some View {
         Form {
             Section {
-                Picker("Share Private uses", selection: $state.prefs.privateDestination) {
+                Picker("Left share button", selection: $state.prefs.privateDestination) {
                     ForEach(ShareDestination.allCases) { Text($0.label).tag($0) }
                 }
-                Picker("Share Public uses", selection: $state.prefs.publicDestination) {
+                Picker("Right share button", selection: $state.prefs.publicDestination) {
                     ForEach(ShareDestination.allCases) { Text($0.label).tag($0) }
                 }
                 Toggle("Copy the link when the upload finishes", isOn: $state.prefs.copyLinkAfterShare)
             } header: {
                 Text("Editor buttons")
             } footer: {
-                Text("Nothing leaves your Mac until you press Share Private or Share Public.")
+                Text("Each editor window has two share buttons, titled with the service they upload to. Nothing leaves your Mac until you press one.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

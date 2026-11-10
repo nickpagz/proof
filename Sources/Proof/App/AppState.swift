@@ -436,6 +436,8 @@ extension AppState: EditorDelegate {
 
     func editorCanShare(_ visibility: ShareVisibility) -> Bool { prefs.destination(for: visibility) != nil }
 
+    func editorShareService(_ visibility: ShareVisibility) -> String? { prefs.destination(for: visibility)?.label }
+
     func editorShareHelp(_ visibility: ShareVisibility) -> String {
         guard let provider = sharing.provider(for: visibility) else { return "" }
         guard provider.isReady else { return "Sign in to \(provider.kind.label) in Settings → Sharing" }

@@ -9,6 +9,8 @@ protocol EditorDelegate: AnyObject {
     func editorSaveAs(_ editor: EditorModel, image: CGImage, pointSize: CGSize) -> URL?
     func editorShare(_ editor: EditorModel, image: CGImage, pointSize: CGSize, visibility: ShareVisibility)
     func editorCanShare(_ visibility: ShareVisibility) -> Bool
+    /// The service behind the button, which is also its title: "CloudUp", "WordPress.com".
+    func editorShareService(_ visibility: ShareVisibility) -> String?
     func editorShareHelp(_ visibility: ShareVisibility) -> String
     func editorStopAskingBeforeClose()
     func editorDidClose(_ editor: EditorModel)
@@ -278,6 +280,8 @@ final class EditorModel {
     func canShare(_ visibility: ShareVisibility) -> Bool { delegate?.editorCanShare(visibility) ?? false }
 
     func shareHelp(_ visibility: ShareVisibility) -> String { delegate?.editorShareHelp(visibility) ?? "" }
+
+    func shareService(_ visibility: ShareVisibility) -> String? { delegate?.editorShareService(visibility) }
 
     /// A PNG of the current result in a temporary folder, for dragging and the share sheet.
     func exportDraft() -> URL? {

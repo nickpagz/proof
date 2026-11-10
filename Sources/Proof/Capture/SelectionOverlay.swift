@@ -55,7 +55,9 @@ final class SelectionOverlay {
             let window = OverlayWindow(screen: screen, overlay: self)
             windows.append(window)
         }
-        NSApp.activate(ignoringOtherApps: true)
+        // No NSApp.activate: activating Proof would raise its other windows (an open editor) above
+        // the apps in front of them, and the capture would show them there. The overlay is a
+        // non-activating panel, which takes the keyboard and mouse without that.
         let underMouse = ScreenGeometry.screenUnderMouse
         for window in windows {
             window.orderFrontRegardless()
@@ -120,9 +122,11 @@ final class SelectionOverlay {
 
 // MARK: - Window
 
-private final class OverlayWindow: NSWindow, CaptureChrome {
+private final class OverlayWindow: NSPanel, CaptureChrome {
     init(screen: NSScreen, overlay: SelectionOverlay) {
-        super.init(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        hidesOnDeactivate = false
+        becomesKeyOnlyIfNeeded = false
         level = .screenSaver
         isOpaque = false
         backgroundColor = .clear
@@ -223,6 +227,9 @@ private final class OverlayView: NSView {
     // MARK: Mouse
 
     override func mouseMoved(with event: NSEvent) {
+        // Proof isn't the active app while the overlay is up, so don't rely on cursor updates alone.
+        let overToolbar = toolbar.map { $0.frame.contains(convert(event.locationInWindow, from: nil)) } ?? false
+        (overToolbar ? NSCursor.arrow : NSCursor.crosshair).set()
         overlay.mouseMoved(to: global(event))
     }
 
