@@ -17,6 +17,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
                                   backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        // An empty unified toolbar makes the title bar as tall as EditorToolbar (52 pt), so macOS
+        // centres the traffic lights on it instead of in a standard, shorter title bar.
+        window.toolbar = NSToolbar(identifier: "editor")
+        window.toolbarStyle = .unified
+        window.titlebarSeparatorStyle = .none
         window.title = model.title
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
