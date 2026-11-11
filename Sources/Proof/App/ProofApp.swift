@@ -5,6 +5,9 @@ import SwiftUI
 enum ProofMain {
     static func main() {
         CLI.runIfRequested()
+        // Tooltips name the editor's tools, so show them sooner than macOS's default (about 1.5 s).
+        // Milliseconds; a value set with `defaults write` still wins.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

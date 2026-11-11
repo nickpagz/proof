@@ -233,7 +233,7 @@ struct EditorToolbar: View {
                     Image(systemName: "photo.on.rectangle.angled").frame(width: 30, height: 28)
                 }
                 .buttonStyle(ToolButtonStyle(active: model.document.background.enabled))
-                .help("Background")
+                .hoverHint("Background")
                 .popover(isPresented: $model.showBackgroundPanel, arrowEdge: .bottom) {
                     BackgroundPanel(model: model)
                 }
@@ -256,7 +256,7 @@ struct EditorToolbar: View {
                 .menuStyle(.button)
                 .buttonStyle(.borderedProminent)
                 .fixedSize()
-                .help(model.needsSaveAs ? "Choose a name and place (⌘S)" : "Save (⌘S)")
+                .hoverHint(model.needsSaveAs ? "Choose a name and place (⌘S)" : "Save (⌘S)")
                 .disabled(model.tool == .crop)
         }
         .padding(.horizontal, 12)
@@ -275,7 +275,8 @@ struct EditorToolbar: View {
             Image(systemName: tool.symbol).frame(width: 30, height: 28)
         }
         .buttonStyle(ToolButtonStyle(active: model.tool == tool))
-        .help("\(tool.label)\(tool.key.map { " (\(String($0).uppercased()))" } ?? "")")
+        .accessibilityLabel(tool.label)
+        .hoverHint("\(tool.label)\(tool.key.map { " (\(String($0).uppercased()))" } ?? "")")
     }
 }
 
@@ -308,7 +309,7 @@ private struct StyleControls: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .help("Colour")
+            .hoverHint("Colour")
 
             Menu {
                 Section("Line width") {
@@ -341,7 +342,7 @@ private struct StyleControls: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .help("Line width, text size, arrow and text style, shadow")
+            .hoverHint("Line width, text size, arrow and text style, shadow")
         }
     }
 
@@ -467,11 +468,11 @@ private struct EditorBottomBar: View {
             } else {
                 DragHandle(model: model)
                     .frame(width: 120, height: 30)
-                    .help("Drag the edited image into any app")
+                    .hoverHint("Drag the edited image into any app")
             }
             Spacer()
 
-            ShareSheetButton(model: model).frame(width: 34, height: 28).help("Share…")
+            ShareSheetButton(model: model).frame(width: 34, height: 28).hoverHint("Share…")
             iconButton("doc.on.doc", help: "Copy (⌘C)") { model.copy() }
             shareButton(.private)
             shareButton(.public)
@@ -483,7 +484,7 @@ private struct EditorBottomBar: View {
 
     private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).frame(width: 22, height: 18) }
-            .help(help)
+            .hoverHint(help)
     }
 
     /// Titled with the service it uploads to, since either button can use either service.
@@ -493,7 +494,7 @@ private struct EditorBottomBar: View {
             Label(model.shareService(visibility) ?? visibility.label, systemImage: "paperplane")
         }
         .disabled(!available || model.isUploading)
-        .help(available ? model.shareHelp(visibility) : "Choose a \(visibility == .private ? "private" : "public") destination in Settings → Sharing")
+        .hoverHint(available ? model.shareHelp(visibility) : "Choose a \(visibility == .private ? "private" : "public") destination in Settings → Sharing")
     }
 }
 
