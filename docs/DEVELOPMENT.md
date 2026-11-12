@@ -72,7 +72,7 @@ hotkey / menu / proof:// ─► SelectionOverlay (one window per display; area, 
 ## Sharing
 
 `Sharing/ShareProvider.swift` is the interface every destination implements (`upload`, `delete`,
-`isReady`, `maxBytes`). Settings maps the editor's Share Private and Share Public buttons to a
+`isReady`, `maxBytes`). Settings maps the editor's two share buttons (left and right) to a
 provider each. Secrets live in the Keychain (`Keychain` in `Sharing/HTTP.swift`), everything else
 in UserDefaults; `ShareHistory` keeps links and delete handles in
 `~/Library/Application Support/Proof/shares.json`.

@@ -197,6 +197,20 @@ final class AnnotationRenderer {
         context.setShadow(offset: CGSize(width: 0, height: 1.5), blur: 4, color: NSColor.black.withAlphaComponent(0.4).cgColor)
     }
 
+    /// A filled circle with the annotation's number, centred on its start point.
+    private func drawBadge(_ a: Annotation, in context: CGContext) {
+        context.saveGState()
+        applyShadow(a.style, context)
+        context.fillEllipse(in: a.badgeRect)
+        context.restoreGState()
+        let label = NSAttributedString(string: "\(a.number)", attributes: [
+            .font: NSFont.systemFont(ofSize: a.counterDiameter * 0.55, weight: .bold),
+            .foregroundColor: a.style.color.isLight ? NSColor.black : NSColor.white,
+        ])
+        let size = label.size()
+        label.draw(at: CGPoint(x: a.start.x - size.width / 2, y: a.start.y - size.height / 2))
+    }
+
     private func drawShape(_ a: Annotation, in context: CGContext) {
         let color = a.style.color.cgColor
         context.saveGState()
@@ -242,18 +256,14 @@ final class AnnotationRenderer {
             context.addPath(Self.smoothPath(a.points))
             context.strokePath()
         case .counter:
-            let d = a.counterDiameter
-            let circle = CGRect(x: a.start.x - d / 2, y: a.start.y - d / 2, width: d, height: d)
+            drawBadge(a, in: context)
+        case .numberedArrow:
             context.saveGState()
             applyShadow(a.style, context)
-            context.fillEllipse(in: circle)
+            context.addPath(Self.arrowPath(from: a.start, to: a.end, width: a.style.lineWidth, style: a.style.arrowStyle))
+            context.fillPath()
             context.restoreGState()
-            let label = NSAttributedString(string: "\(a.number)", attributes: [
-                .font: NSFont.systemFont(ofSize: d * 0.55, weight: .bold),
-                .foregroundColor: a.style.color.isLight ? NSColor.black : NSColor.white,
-            ])
-            let size = label.size()
-            label.draw(at: CGPoint(x: a.start.x - size.width / 2, y: a.start.y - size.height / 2))
+            drawBadge(a, in: context)
         case .text:
             drawText(a, in: context)
         case .select, .crop, .pixelate, .blur, .spotlight:

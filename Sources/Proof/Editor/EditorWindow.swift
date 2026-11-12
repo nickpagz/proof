@@ -221,7 +221,7 @@ struct EditorToolbar: View {
         [.select],
         [.rectangle, .filledRectangle, .ellipse, .line, .arrow, .text],
         [.pixelate, .blur, .spotlight],
-        [.counter, .pencil, .highlighter],
+        [.counter, .numberedArrow, .pencil, .highlighter],
     ]
 
     var body: some View {

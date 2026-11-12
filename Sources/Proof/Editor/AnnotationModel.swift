@@ -3,7 +3,7 @@ import AppKit
 /// Every drawing tool in the editor. `select` and `crop` edit; the rest create annotations.
 enum EditorTool: String, CaseIterable, Identifiable, Codable {
     case select, rectangle, filledRectangle, ellipse, line, arrow, text, pixelate, blur, spotlight
-    case counter, pencil, highlighter, crop
+    case counter, numberedArrow, pencil, highlighter, crop
 
     var id: String { rawValue }
 
@@ -20,6 +20,7 @@ enum EditorTool: String, CaseIterable, Identifiable, Codable {
         case .blur: return "Blur"
         case .spotlight: return "Spotlight"
         case .counter: return "Counter"
+        case .numberedArrow: return "Numbered Arrow"
         case .pencil: return "Pencil"
         case .highlighter: return "Highlighter"
         case .crop: return "Crop"
@@ -39,6 +40,7 @@ enum EditorTool: String, CaseIterable, Identifiable, Codable {
         case .blur: return "drop.halffull"
         case .spotlight: return "flashlight.on.fill"
         case .counter: return "1.circle"
+        case .numberedArrow: return "arrow.up.right.circle"
         case .pencil: return "pencil.tip"
         case .highlighter: return "highlighter"
         case .crop: return "crop"
@@ -59,6 +61,7 @@ enum EditorTool: String, CaseIterable, Identifiable, Codable {
         case .blur: return "b"
         case .spotlight: return "s"
         case .counter: return "n"
+        case .numberedArrow: return "m"
         case .pencil: return "p"
         case .highlighter: return "h"
         case .crop: return "c"
@@ -75,7 +78,7 @@ enum EditorTool: String, CaseIterable, Identifiable, Codable {
 
     var usesLineWidth: Bool {
         switch self {
-        case .rectangle, .ellipse, .line, .arrow, .pencil, .highlighter: return true
+        case .rectangle, .ellipse, .line, .arrow, .numberedArrow, .pencil, .highlighter: return true
         default: return false
         }
     }
@@ -166,19 +169,27 @@ struct Annotation: Codable, Equatable, Identifiable {
             for p in points { r = r.union(CGRect(origin: p, size: .zero)) }
             return r.insetBy(dx: -pad, dy: -pad)
         case .counter:
-            let d = counterDiameter
-            return CGRect(x: start.x - d / 2, y: start.y - d / 2, width: d, height: d).insetBy(dx: -4, dy: -4)
+            return badgeRect.insetBy(dx: -4, dy: -4)
         case .text:
             return CGRect(origin: start, size: AnnotationRenderer.textSize(for: self)).insetBy(dx: -4, dy: -4)
         case .arrow:
             let head = AnnotationRenderer.arrowHeadLength(style.lineWidth)
             return rect.insetBy(dx: -head, dy: -head)
+        case .numberedArrow:
+            let head = AnnotationRenderer.arrowHeadLength(style.lineWidth)
+            return rect.insetBy(dx: -head, dy: -head).union(badgeRect.insetBy(dx: -4, dy: -4))
         default:
             return rect.insetBy(dx: -pad, dy: -pad)
         }
     }
 
     var counterDiameter: CGFloat { max(24, style.fontSize * 1.4) }
+
+    /// The numbered circle of a counter, or at the tail of a numbered arrow.
+    var badgeRect: CGRect {
+        let d = counterDiameter
+        return CGRect(x: start.x - d / 2, y: start.y - d / 2, width: d, height: d)
+    }
 
     /// Moves every point the annotation owns.
     mutating func offset(by delta: CGPoint) {
@@ -202,6 +213,8 @@ struct Annotation: Codable, Equatable, Identifiable {
             return abs(d - 1) * min(r.width, r.height) / 2 < t
         case .line, .arrow:
             return distance(from: point, toSegment: start, end) < t
+        case .numberedArrow:
+            return distance(from: point, toSegment: start, end) < t || hypot(point.x - start.x, point.y - start.y) < counterDiameter / 2 + 2
         case .pencil, .highlighter:
             return zip(points, points.dropFirst()).contains { distance(from: point, toSegment: $0, $1) < t }
                 || (points.count == 1 && hypot(points[0].x - point.x, points[0].y - point.y) < t)
@@ -278,7 +291,8 @@ struct AnnotationDocument: Codable, Equatable {
 
     var visibleRect: CGRect { crop ?? CGRect(origin: .zero, size: imageSize) }
 
+    /// Counters and numbered arrows count in one sequence, so they can be mixed.
     var nextCounterNumber: Int {
-        (annotations.filter { $0.tool == .counter }.map(\.number).max() ?? 0) + 1
+        (annotations.filter { $0.tool == .counter || $0.tool == .numberedArrow }.map(\.number).max() ?? 0) + 1
     }
 }

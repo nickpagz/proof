@@ -364,6 +364,7 @@ enum EditorDemo {
         for (i, x) in [0.4, 0.47, 0.54].enumerated() {
             add(.counter, p(CGFloat(x), 0.72), p(CGFloat(x), 0.72)) { $0.number = i + 1 }
         }
+        add(.numberedArrow, p(0.4, 0.95), p(0.52, 0.86)) { $0.number = 4 }
         style.color = .yellow
         add(.highlighter, .zero, .zero) { $0.points = stride(from: 0.6, through: 0.9, by: 0.02).map { p(CGFloat($0), 0.8 + 0.01 * sin(CGFloat($0) * 30)) } }
         style.color = .red

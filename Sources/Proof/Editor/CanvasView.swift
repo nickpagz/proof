@@ -141,7 +141,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     private func handles(for a: Annotation) -> [(Handle, CGPoint)] {
         switch a.tool {
-        case .line, .arrow: return [(.start, a.start), (.end, a.end)]
+        case .line, .arrow, .numberedArrow: return [(.start, a.start), (.end, a.end)]
         case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur, .spotlight: return rectHandles(a.rect)
         default: return []
         }
@@ -230,6 +230,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         default:
             var a = Annotation(tool: tool, start: p, end: p, style: model.style)
             if tool == .pencil || tool == .highlighter { a.points = [p] }
+            if tool == .numberedArrow { a.number = model.document.nextCounterNumber }
             model.beginGesture()
             model.updateDuringGesture { $0.annotations.append(a) }
             model.selection = nil
@@ -354,7 +355,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
     private static func constrain(from a: CGPoint, to b: CGPoint, tool: EditorTool) -> CGPoint {
         let dx = b.x - a.x, dy = b.y - a.y
         switch tool {
-        case .line, .arrow:
+        case .line, .arrow, .numberedArrow:
             let angle = (atan2(dy, dx) / (.pi / 4)).rounded() * (.pi / 4)
             let length = hypot(dx, dy)
             return CGPoint(x: a.x + cos(angle) * length, y: a.y + sin(angle) * length)

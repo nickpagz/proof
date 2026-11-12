@@ -128,6 +128,14 @@ enum SelfTest {
         check("rectangle miss inside", !rect.hitTest(CGPoint(x: 60, y: 35), tolerance: 4))
         let arrow = Annotation(tool: .arrow, start: .zero, end: CGPoint(x: 100, y: 100), style: AnnotationStyle())
         check("arrow hit along shaft", arrow.hitTest(CGPoint(x: 50, y: 51), tolerance: 4))
+        var numbered = Annotation(tool: .numberedArrow, start: .zero, end: CGPoint(x: 100, y: 0), style: AnnotationStyle())
+        numbered.number = 2
+        check("numbered arrow hit on badge", numbered.hitTest(CGPoint(x: -10, y: 8), tolerance: 4))
+        check("numbered arrow hit along shaft", numbered.hitTest(CGPoint(x: 60, y: 2), tolerance: 4))
+        var counted = AnnotationDocument(imageSize: CGSize(width: 10, height: 10), scale: 1)
+        counted.annotations = [Annotation(tool: .counter, start: .zero, end: .zero, style: AnnotationStyle()), numbered]
+        counted.annotations[0].number = 1
+        check("counters and numbered arrows share numbers", counted.nextCounterNumber == 3)
         check("arrow path", !AnnotationRenderer.arrowPath(from: .zero, to: CGPoint(x: 100, y: 0), width: 4, style: .tapered).isEmpty)
 
         // A blank 800x600 px image, rendered with every annotation.

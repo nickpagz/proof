@@ -28,15 +28,15 @@ capture on your Mac unless you decide to share it.
   saved until you choose Save as…. Or switch Settings → After capture to save straight away and
   keep a Quick Access thumbnail in the corner: drag it into any app, or hover to annotate, copy
   or save.
-- **Annotate**: rectangles, ellipses, lines, arrows, text, counters, pencil and highlighter,
-  pixelate and blur for anything private, spotlight, crop, and a background tool that puts the
-  capture on a gradient with padding, rounded corners and a shadow. Everything stays editable
-  until you save, with full undo. Single-key tools: V R F O L A T X B S N P H C.
-- **Shares** with two buttons in the editor. **Share Private** uploads to CloudUp (an unlisted
-  link of its own) and **Share Public** to your WordPress.com site's media library, under a random
-  file name so the link doesn't give away what it is. Either button can use either service. The
-  link is copied, and Settings → Sharing keeps a list of recent shares where you can copy a link
-  again or delete the upload.
+- **Annotate**: rectangles, ellipses, lines, arrows, text, counters, numbered arrows, pencil and
+  highlighter, pixelate and blur for anything private, spotlight, crop, and a background tool
+  that puts the capture on a gradient with padding, rounded corners and a shadow. Everything
+  stays editable until you save, with full undo. Single-key tools: V R F O L A T X B S N M P H C.
+- **Shares** with two buttons in the editor, each titled with the service it uploads to: CloudUp
+  (an unlisted link of its own) or your WordPress.com site's media library, under a random file
+  name by default so the link doesn't give away what it is. Settings → Sharing picks the service
+  for each button. The link is copied, and Settings → Sharing keeps a list of recent shares where
+  you can copy a link again or delete the upload.
 - **Saves** PNG, JPEG or HEIC to your Downloads folder (or anywhere), named the way you like.
 - **Works with your keyboard**: ⇧⌘3, ⇧⌘4 and ⇧⌘5 by default, every action rebindable, and
   `proof://` links for Raycast, Alfred and Shortcuts.
