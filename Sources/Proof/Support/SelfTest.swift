@@ -236,5 +236,24 @@ enum SelfTest {
         let reloaded = (try? JSONEncoder().encode(none)).flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) }
         check("a cleared share button stays cleared", reloaded?.destination(for: .public) == nil)
         sharing()
+        recording()
+    }
+
+    private static func recording() {
+        let old = try? JSONDecoder().decode(Preferences.self, from: Data(#"{"format":"png"}"#.utf8))
+        check("recording defaults: no audio, clicks shown, countdown, 1x MP4",
+              old?.recordMicrophone == false && old?.recordSystemAudio == false && old?.highlightClicks == true
+              && old?.recordingCountdown == true && old?.recordAtFullResolution == false && old?.videoFormat == .mp4)
+        check("Record Screen defaults to ⇧⌘6", HotKeyAction.recordScreen.defaultShortcut?.displayString == "⇧⌘6")
+        var cleared = Preferences()
+        cleared.shortcuts[HotKeyAction.recordScreen.rawValue] = .some(nil)
+        let reloaded = (try? JSONEncoder().encode(cleared)).flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) }
+        check("a cleared Record Screen shortcut stays cleared", reloaded?.shortcut(for: .recordScreen) == nil)
+        check("elapsed time labels", RecordingController.elapsedLabel(7) == "0:07" && RecordingController.elapsedLabel(754) == "12:34"
+              && RecordingController.elapsedLabel(3723) == "1:02:03")
+        check("recording sources name their kind", RecordingSource.area(.zero).kind == .area && RecordingSource.display(CGMainDisplayID()).kind == .fullscreen)
+        check("video formats", VideoFormat.mp4.mimeType == "video/mp4" && VideoFormat.gif.fileExtension == "gif" && GIFSize.full.maxWidth == nil)
+        check("H.264 bitrate scales with size", CodecSettings.videoBitrate(width: 1920, height: 1080, fps: 30) > CodecSettings.videoBitrate(width: 640, height: 360, fps: 30))
+        check("VideoPress links", WPComConfig.videoPressURL(guid: "AbC123").absoluteString == "https://videopress.com/v/AbC123")
     }
 }

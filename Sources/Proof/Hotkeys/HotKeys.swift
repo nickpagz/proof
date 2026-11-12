@@ -95,7 +95,7 @@ struct Shortcut: Codable, Equatable, Hashable {
 /// Everything a global shortcut can trigger.
 enum HotKeyAction: String, CaseIterable, Identifiable {
     case allInOne, captureArea, capturePreviousArea, captureFullscreen, captureWindow, selfTimer
-    case toggleDesktopIcons, restoreLastCapture
+    case recordScreen, toggleDesktopIcons, restoreLastCapture
 
     var id: String { rawValue }
 
@@ -107,6 +107,7 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
         case .captureFullscreen: return "Capture Fullscreen"
         case .captureWindow: return "Capture Window"
         case .selfTimer: return "Self-Timer"
+        case .recordScreen: return "Record Screen"
         case .toggleDesktopIcons: return "Toggle Desktop Icons"
         case .restoreLastCapture: return "Restore Recently Closed"
         }
@@ -120,6 +121,7 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
         case .captureFullscreen: return "display"
         case .captureWindow: return "macwindow"
         case .selfTimer: return "timer"
+        case .recordScreen: return "record.circle"
         case .toggleDesktopIcons: return "eye"
         case .restoreLastCapture: return "arrow.uturn.backward"
         }
@@ -133,6 +135,8 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
         case .captureFullscreen: return Shortcut(keyCode: UInt32(kVK_ANSI_3), modifiers: cmdShift)
         case .captureArea: return Shortcut(keyCode: UInt32(kVK_ANSI_4), modifiers: cmdShift)
         case .allInOne: return Shortcut(keyCode: UInt32(kVK_ANSI_5), modifiers: cmdShift)
+        // Free on Macs without a Touch Bar; clear it in Settings → Shortcuts to use the menu only.
+        case .recordScreen: return Shortcut(keyCode: UInt32(kVK_ANSI_6), modifiers: cmdShift)
         default: return nil
         }
     }

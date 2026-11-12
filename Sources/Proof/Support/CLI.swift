@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import Foundation
 
@@ -15,6 +16,15 @@ enum CLI {
       --displays                          list displays with their global bounds
       --windows                           list capturable windows, frontmost first
       --permissions                       Screen Recording permission state
+
+    Recording (needs Screen Recording permission too, and Microphone for --mic)
+      --record area --rect X,Y,W,H | fullscreen [--display INDEX] | window --window SUBSTRING
+               --seconds N [--mic] [--system-audio] [--out PATH]
+                                          record for N seconds, headlessly, and write the .mp4
+      --gif <video> --out PATH [--width N] [--from S --to S]
+                                          make a GIF the way the recording window does
+      --trim <video> --from S --to S --out PATH
+                                          cut an .mp4 the way the recording window's Trim does
 
     Sharing (PROOF_CLOUDUP_API / PROOF_WPCOM_API point at a test server; see Scripts/mock-share-server.py)
       --providers                         sign-in state of each sharing service and the editor buttons
@@ -35,6 +45,8 @@ enum CLI {
       --ui-test overlay area|window|all-in-one [X,Y,W,H]
       --ui-test settings
       --ui-test editor <image> [--demo]   open the editor, optionally with one of every annotation
+      --ui-test video <video>             open a recording window on a video file
+      --ui-test recording-bar X,Y,W,H     the recording bar and border around an area, without recording
     """
 
     /// Returns normally when no CLI flag is present; otherwise runs the command and exits.
@@ -51,6 +63,22 @@ enum CLI {
             exit(0)
         case "--capture":
             runBlocking { await HeadlessCapture.run(Array(args.dropFirst())) }
+            exit(0)
+        case "--record":
+            runBlocking { await HeadlessRecord.run(Array(args.dropFirst())) }
+            exit(0)
+        case "--gif":
+            guard args.count > 1, let out = value("--out", in: args) else {
+                fail("usage: Proof --gif <video> --out PATH [--width N] [--from S --to S]")
+            }
+            runBlocking { await HeadlessRecord.gif(input: args[1], output: out, args: args) }
+            exit(0)
+        case "--trim":
+            guard args.count > 1, let out = value("--out", in: args),
+                  let from = value("--from", in: args).flatMap(Double.init), let to = value("--to", in: args).flatMap(Double.init), to > from else {
+                fail("usage: Proof --trim <video> --from S --to S --out PATH")
+            }
+            runBlocking { await HeadlessRecord.trim(input: args[1], from: from, to: to, output: out) }
             exit(0)
         case "--displays":
             for (index, screen) in NSScreen.screens.enumerated() {
@@ -203,6 +231,97 @@ enum HeadlessCapture {
     }
 }
 
+/// `Proof --record …` and `--gif …`: the recording engine and GIF maker without the bar or window.
+enum HeadlessRecord {
+    static func run(_ args: [String]) async {
+        guard let kind = args.first else { CLI.fail("usage: Proof --record area|fullscreen|window … --seconds N") }
+        guard let seconds = CLI.value("--seconds", in: args).flatMap(Double.init), seconds > 0 else {
+            CLI.fail("--record needs --seconds N")
+        }
+        let source: RecordingSource
+        switch kind {
+        case "fullscreen":
+            let screens = NSScreen.screens
+            let index = Int(CLI.value("--display", in: args) ?? "0") ?? 0
+            guard screens.indices.contains(index) else { CLI.fail("no display \(index); see --displays") }
+            source = .display(ScreenGeometry.displayID(of: screens[index]))
+        case "area":
+            guard let raw = CLI.value("--rect", in: args) else { CLI.fail("--record area needs --rect X,Y,W,H") }
+            let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            guard parts.count == 4 else { CLI.fail("--rect wants four numbers: X,Y,W,H") }
+            source = .area(CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]))
+        case "window":
+            guard let needle = CLI.value("--window", in: args)?.lowercased() else { CLI.fail("--record window needs --window SUBSTRING") }
+            guard let window = ScreenGrabber.pickableWindows().first(where: {
+                $0.ownerName.lowercased().contains(needle) || $0.title.lowercased().contains(needle)
+            }) else { CLI.fail("no window matching \(needle); see --windows") }
+            source = .window(window)
+        default:
+            CLI.fail("unknown recording kind \(kind)")
+        }
+
+        let prefs = Preferences.load()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let config = try await RecordingConfig.make(source: source, prefs: prefs, systemAudio: args.contains("--system-audio"),
+                                                        microphone: args.contains("--mic"))
+            let session = RecordingSession()
+            try await session.prepare(config)
+            try await session.beginRecording(tempURL: folder.appendingPathComponent("recording.mov"))
+            FileHandle.standardError.write("recording \(config.width)x\(config.height) for \(seconds) s…\n".data(using: .utf8)!)
+            try await Task.sleep(for: .seconds(seconds))
+            let summary = try await session.stop()
+            let out: URL
+            if let path = CLI.value("--out", in: args) {
+                out = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            } else {
+                let name = FileNaming.name(template: prefs.fileNameTemplate, date: Date(), appName: source.appName, kind: source.kind)
+                out = FileNaming.uniqueURL(in: prefs.saveFolder, name: name, ext: "mp4")
+            }
+            try? FileManager.default.removeItem(at: out)
+            try FileManager.default.moveItem(at: summary.url, to: out)
+            try? FileManager.default.removeItem(at: folder)
+            if let info = await VideoExport.info(out) {
+                FileHandle.standardError.write("recorded \(Int(info.size.width))x\(Int(info.size.height)), \(String(format: "%.2f", info.duration)) s\n".data(using: .utf8)!)
+            }
+            print(out.path)
+        } catch {
+            CLI.fail("recording failed: \(error.localizedDescription)")
+        }
+    }
+
+    static func trim(input: String, from: Double, to: Double, output: String) async {
+        let source = URL(fileURLWithPath: (input as NSString).expandingTildeInPath)
+        let out = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
+        let range = CMTimeRange(start: CMTime(seconds: from, preferredTimescale: 600), end: CMTime(seconds: to, preferredTimescale: 600))
+        do {
+            try await VideoExport.trimmedMP4(from: source, range: range, to: out)
+            if let info = await VideoExport.info(out) {
+                FileHandle.standardError.write("trimmed to \(String(format: "%.2f", info.duration)) s\n".data(using: .utf8)!)
+            }
+            print(out.path)
+        } catch {
+            CLI.fail("trim failed: \(error.localizedDescription)")
+        }
+    }
+
+    static func gif(input: String, output: String, args: [String]) async {
+        let source = URL(fileURLWithPath: (input as NSString).expandingTildeInPath)
+        var range: CMTimeRange?
+        if let from = CLI.value("--from", in: args).flatMap(Double.init), let to = CLI.value("--to", in: args).flatMap(Double.init), to > from {
+            range = CMTimeRange(start: CMTime(seconds: from, preferredTimescale: 600), end: CMTime(seconds: to, preferredTimescale: 600))
+        }
+        let out = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
+        do {
+            try await VideoExport.gif(from: source, range: range, maxWidth: CLI.value("--width", in: args).flatMap(Int.init), to: out)
+            print(out.path)
+        } catch {
+            CLI.fail("gif failed: \(error.localizedDescription)")
+        }
+    }
+}
+
 enum UpdateCLI {
     static var running: (version: String, build: Int) {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -309,6 +428,20 @@ enum UITest {
                     model.tool = .select
                     model.selection = demo.annotations.first(where: { $0.tool == .arrow })?.id
                 }
+            case "video":
+                guard let path = rest.first else { return }
+                let url = URL(fileURLWithPath: path)
+                guard let info = await VideoExport.info(url) else { Log.note("ui-test video: can't read \(path)"); return }
+                let video = RecordedVideo(url: url, pixelSize: info.size, duration: info.duration, kind: .area,
+                                          appName: nil, date: Date(), title: url.deletingPathExtension().lastPathComponent)
+                let model = VideoModel(video: video, format: state.prefs.videoFormat)
+                model.delegate = state
+                model.markHandled()
+                state.presentVideo(model)
+            case "recording-bar":
+                let n = rest.first?.split(separator: ",").compactMap { Double($0) } ?? []
+                guard n.count == 4 else { Log.note("ui-test recording-bar wants X,Y,W,H"); return }
+                state.recorder.begin(.area(CGRect(x: n[0], y: n[1], width: n[2], height: n[3])), title: "UI test")
             default:
                 Log.note("unknown ui-test \(what)")
             }

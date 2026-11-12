@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""A stand-in for CloudUp's API, its S3 upload target and WordPress.com's media endpoints, so the
-sharing code can be tested end to end without real accounts. It checks each request the way the
+"""A stand-in for CloudUp's API, its S3 upload target, WordPress.com's media endpoints and
+VideoPress's resumable (tus) uploads, so the sharing code can be tested end to end without real
+accounts. Site 124 has no VideoPress, so its videos fall back to the media library. It checks each request the way the
 real service would care about and records what happened at GET /log.
 
     python3 Scripts/mock-share-server.py 8765 &
@@ -9,10 +10,11 @@ real service would care about and records what happened at GET /log.
     PROOF_WPCOM_API=http://127.0.0.1:8765 PROOF_WPCOM_TOKEN=wptoken PROOF_WPCOM_SITE=123 \\
         build/Proof.app/Contents/MacOS/Proof --share image.png --to wordpress --delete-after
 
-Scripts/test-sharing.sh runs both and checks the log.
+Scripts/test-sharing.sh runs these, with an image and a video, and checks the log.
 """
 import base64
 import json
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -21,7 +23,10 @@ BASE = f"http://127.0.0.1:{PORT}"
 CLOUDUP_AUTH = "Basic " + base64.b64encode(b"tester:secret").decode()
 WP_AUTH = "Bearer wptoken"
 LOG = []
-STATE = {"streams": set(), "items": {}, "s3": {}, "media": {}}
+STATE = {"streams": set(), "items": {}, "s3": {}, "media": {}, "tus": {}}
+VP_TOKEN = "vp-upload-jwt"
+VP_KEY_TOKEN = "vp-key-token"
+NO_VIDEOPRESS = {"124"}
 
 
 def parse_multipart(body, content_type):
@@ -94,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
                 if obj["stream_id"] not in STATE["streams"]:
                     return self.fail(400, "unknown stream")
                 iid = f"iItem{len(STATE['items']) + 1}"
-                key = f"{iid}.png"
+                key = f"{iid}.{obj['filename'].rsplit('.', 1)[-1]}"
                 STATE["items"][iid] = {"stream": obj["stream_id"], "key": key, "size": obj["size"], "complete": False}
                 LOG.append({"event": "cloudup.item", "filename": obj["filename"], "size": obj["size"], "mime": obj["mime"]})
                 return self.reply(201, {
@@ -121,8 +126,24 @@ class Handler(BaseHTTPRequestHandler):
             if len(data) != item["size"] or str(len(data)) != fields.get("Content-Length"):
                 return self.fail(400, f"size mismatch: got {len(data)}, item says {item['size']}")
             STATE["s3"][fields["key"]] = data
-            LOG.append({"event": "s3.upload", "key": fields["key"], "bytes": len(data), "png": data[:8] == b"\x89PNG\r\n\x1a\n"})
+            event = {"event": "s3.upload", "key": fields["key"], "bytes": len(data)}
+            if fields["key"].endswith(".png"):
+                event["png"] = data[:8] == b"\x89PNG\r\n\x1a\n"
+            LOG.append(event)
             return self.reply(201)
+        # VideoPress: the upload token, then tus create and PATCH (sent as POST with an override)
+        match = re.fullmatch(r"/wpcom/v2/sites/(\d+)/media/videopress-upload-jwt", self.path)
+        if match:
+            if self.headers.get("Authorization") != WP_AUTH:
+                return self.reply(403, {"code": "unauthorized", "message": "bad token"})
+            if match.group(1) in NO_VIDEOPRESS:
+                LOG.append({"event": "vp.nojwt", "site": match.group(1)})
+                return self.reply(403, {"code": "videopress_disabled", "message": "VideoPress is not enabled on this site"})
+            LOG.append({"event": "vp.jwt", "site": match.group(1)})
+            return self.reply(200, {"upload_token": VP_TOKEN, "upload_blog_id": int(match.group(1))})
+        match = re.fullmatch(r"/rest/v1\.1/video-uploads/(\d+)(?:/(\w+))?", self.path)
+        if match:
+            return self.tus(match.group(1), match.group(2), body)
         # WordPress.com
         if self.path.startswith("/rest/v1.1/sites/"):
             if self.headers.get("Authorization") != WP_AUTH:
@@ -145,7 +166,64 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(404, "no such media")
                 LOG.append({"event": "wp.delete", "media": mid})
                 return self.reply(200, {"ID": mid, "status": "deleted"})
+            if re.fullmatch(r"\d+", segments[-1] if len(segments) == 7 else ""):
+                mid = int(segments[6])
+                if mid not in STATE["media"]:
+                    return self.fail(404, "no such media")
+                title = dict(p.split("=", 1) for p in body.decode().split("&") if "=" in p).get("title")
+                LOG.append({"event": "wp.title", "media": mid, "title": title})
+                return self.reply(200, {"ID": mid, "title": title})
         self.fail(404, "no route")
+
+    def tus(self, site, key, body):
+        if self.headers.get("Tus-Resumable") != "1.0.0":
+            return self.fail(400, "missing Tus-Resumable")
+        if key is None:
+            if self.headers.get("x-videopress-upload-token") != VP_TOKEN:
+                return self.fail(401, "bad upload token")
+            length = int(self.headers.get("Upload-Length") or 0)
+            meta = dict(item.split(" ", 1) for item in self.headers.get("Upload-Metadata", "").split(",") if " " in item)
+            filename = base64.b64decode(meta.get("filename", "")).decode()
+            key = f"k{len(STATE['tus']) + 1}"
+            STATE["tus"][key] = {"site": site, "length": length, "data": b"", "filename": filename}
+            LOG.append({"event": "vp.create", "site": site, "length": length, "filename": filename})
+            self.send_response(201)
+            self.send_header("Location", f"/rest/v1.1/video-uploads/{site}/{key}")
+            self.send_header("x-videopress-upload-key", key)
+            self.send_header("x-videopress-upload-key-token", VP_KEY_TOKEN)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        upload = STATE["tus"].get(key)
+        if upload is None:
+            return self.fail(404, "no such upload")
+        if self.headers.get("x-videopress-upload-token") != VP_KEY_TOKEN:
+            return self.fail(401, "bad key token")
+        override = self.headers.get("X-HTTP-Method-Override")
+        if override == "HEAD":
+            self.send_response(200)
+            self.send_header("Upload-Offset", str(len(upload["data"])))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if override != "PATCH":
+            return self.fail(400, "expected X-HTTP-Method-Override: PATCH")
+        if int(self.headers.get("Upload-Offset") or -1) != len(upload["data"]):
+            return self.fail(409, "offset mismatch")
+        upload["data"] += body
+        LOG.append({"event": "vp.chunk", "bytes": len(body), "offset": len(upload["data"])})
+        self.send_response(204)
+        self.send_header("Upload-Offset", str(len(upload["data"])))
+        if len(upload["data"]) >= upload["length"]:
+            mid = 70 + len(STATE["media"]) + 1
+            STATE["media"][mid] = site
+            guid = f"VPguid{mid}"
+            LOG.append({"event": "vp.done", "media": mid, "guid": guid, "bytes": len(upload["data"])})
+            self.send_header("x-videopress-upload-guid", guid)
+            self.send_header("x-videopress-upload-media-id", str(mid))
+            self.send_header("x-videopress-upload-src-url", f"https://videos.files.wordpress.com/{guid}/{upload['filename']}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_PATCH(self):
         body = self.body()

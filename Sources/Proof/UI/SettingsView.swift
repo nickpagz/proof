@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum SettingsTab: Hashable {
-    case general, screenshots, quickAccess, sharing, shortcuts, updates
+    case general, screenshots, recording, quickAccess, sharing, shortcuts, updates
 }
 
 struct SettingsView: View {
@@ -12,6 +12,7 @@ struct SettingsView: View {
         TabView(selection: $state.settingsTab) {
             GeneralSettings(state: state).tabItem { Label("General", systemImage: "gearshape") }.tag(SettingsTab.general)
             CaptureSettings(state: state).tabItem { Label("Screenshots", systemImage: "camera.viewfinder") }.tag(SettingsTab.screenshots)
+            RecordingSettings(state: state).tabItem { Label("Recording", systemImage: "record.circle") }.tag(SettingsTab.recording)
             QuickAccessSettings(state: state).tabItem { Label("Quick Access", systemImage: "square.on.square") }.tag(SettingsTab.quickAccess)
             SharingSettings(state: state, sharing: state.sharing).tabItem { Label("Sharing", systemImage: "link") }.tag(SettingsTab.sharing)
             ShortcutSettings(state: state).tabItem { Label("Shortcuts", systemImage: "command") }.tag(SettingsTab.shortcuts)
@@ -130,6 +131,58 @@ private struct CaptureSettings: View {
     }
 }
 
+// MARK: - Recording
+
+private struct RecordingSettings: View {
+    @Bindable var state: AppState
+    @State private var microphones = Microphone.all()
+
+    var body: some View {
+        Form {
+            Section("Recording") {
+                Picker("Frame rate", selection: $state.prefs.recordingFrameRate) {
+                    Text("30 fps").tag(30)
+                    Text("60 fps").tag(60)
+                }
+                Toggle("Record at full Retina resolution", isOn: $state.prefs.recordAtFullResolution)
+                Toggle("Show the pointer", isOn: $state.prefs.showCursorInRecordings)
+                Toggle("Highlight clicks", isOn: $state.prefs.highlightClicks)
+                    .disabled(!state.prefs.showCursorInRecordings)
+                Toggle("Count down 3 seconds before recording", isOn: $state.prefs.recordingCountdown)
+                Text("Full Retina resolution makes recordings sharper and about four times the size. CloudUp takes files up to 200 MB.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Audio") {
+                Toggle("Record the microphone", isOn: $state.prefs.recordMicrophone)
+                Picker("Microphone", selection: $state.prefs.microphoneDeviceID) {
+                    Text("System Default").tag(String?.none)
+                    ForEach(microphones) { Text($0.name).tag(String?.some($0.id)) }
+                }
+                .disabled(!state.prefs.recordMicrophone)
+                Toggle("Record computer audio", isOn: $state.prefs.recordSystemAudio)
+                Text("The bar under the area you're recording switches these too, and remembers the choice.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("After recording") {
+                Picker("Save, copy and share as", selection: $state.prefs.videoFormat) {
+                    ForEach(VideoFormat.allCases) { Text($0.label).tag($0) }
+                }
+                Picker("GIF size", selection: $state.prefs.gifSize) {
+                    ForEach(GIFSize.allCases) { Text($0.label).tag($0) }
+                }
+                Text("Each recording opens in its own window, where you can trim it and switch between MP4 and GIF before saving or sharing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Text("Record Screen (⇧⌘6 by default, or from the menu bar): drag an area, click a window, or press F for the whole screen. Press the shortcut again, or the Stop button in the menu bar, to stop.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { microphones = Microphone.all() }
+    }
+}
+
 // MARK: - Quick Access
 
 private struct QuickAccessSettings: View {
@@ -233,8 +286,12 @@ private struct SharingSettings: View {
                         }
                     }
                     Toggle("Use a random file name in the link", isOn: $state.prefs.wordpressRandomFileNames)
-                    Text("Images go to the site's media library, titled with the capture's name. On a private site only its members can open the link.")
+                    Text("Images and GIFs go to the site's media library, titled with the capture's name, and recordings to its VideoPress. On a private site only its members can open the link.")
                         .font(.caption).foregroundStyle(.secondary)
+                    if account.siteHasVideoPress == false {
+                        Text("This site has no VideoPress, so recordings go to its media library as MP4 files.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 } else {
                     HStack {
                         Button("Sign In with WordPress.com…") { sharing.signInToWordPress() }

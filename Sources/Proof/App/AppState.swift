@@ -32,6 +32,7 @@ final class AppState {
 
     let updates = UpdateController()
     let sharing = SharingController()
+    let recorder = RecordingController()
     var settingsTab: SettingsTab = .general
     @ObservationIgnored let quickAccess = QuickAccessController()
     private(set) var isCapturing = false
@@ -45,6 +46,10 @@ final class AppState {
     @ObservationIgnored private var editorItems: [ObjectIdentifier: QuickAccessItem] = [:]
     /// Editors opened on a capture Proof saved write back to that file; others save a new one.
     @ObservationIgnored private var editorOwnsFile: Set<ObjectIdentifier> = []
+    @ObservationIgnored private var videoWindows: [VideoWindowController] = []
+
+    /// The menu bar icon turns into a Stop button while recording.
+    @ObservationIgnored var onRecordingChange: (() -> Void)?
 
     @ObservationIgnored var onMenuNeedsUpdate: (() -> Void)?
     @ObservationIgnored var openSettingsHandler: (() -> Void)?
@@ -55,7 +60,10 @@ final class AppState {
         sharing.prefs = { [weak self] in self?.prefs ?? Preferences() }
         sharing.openSharingSettings = { [weak self] in self?.settingsTab = .sharing; self?.openSettings() }
         applyQuickAccessPreferences()
-        updates.isAppBusy = { [weak self] in self?.isCapturing ?? false }
+        recorder.state = self
+        recorder.onFinished = { [weak self] video in self?.recordingFinished(video) }
+        recorder.onPhaseChange = { [weak self] in self?.onRecordingChange?() }
+        updates.isAppBusy = { [weak self] in (self?.isCapturing ?? false) || (self?.recorder.isActive ?? false) }
         updates.automaticChecksEnabled = { [weak self] in self?.prefs.checkForUpdatesAutomatically ?? true }
         Notifier.openUpdatesHandler = { [weak self] in self?.openSettings() }
         HotKeyCenter.shared.handler = { [weak self] action in self?.perform(action) }
@@ -112,6 +120,9 @@ final class AppState {
         case .captureFullscreen: Task { await captureFullscreen(displayID: ScreenGeometry.displayID(of: ScreenGeometry.screenUnderMouse)) }
         case .capturePreviousArea: Task { await capturePreviousArea() }
         case .selfTimer: Task { await runOverlay(startMode: .area, allInOne: false, timer: true) }
+        case .recordScreen:
+            // Pressed again, it starts the waiting recording or stops the running one.
+            if recorder.isActive { recorder.primaryAction() } else { Task { await runOverlay(startMode: .area, allInOne: false, record: true) } }
         case .toggleDesktopIcons: prefs.hideDesktopIcons.toggle()
         case .restoreLastCapture: quickAccess.restoreRecentlyClosed()
         }
@@ -131,8 +142,8 @@ final class AppState {
         return false
     }
 
-    func runOverlay(startMode: SelectionOverlay.Mode, allInOne: Bool, timer: Bool = false) async {
-        guard !isCapturing, ensurePermission() else { return }
+    func runOverlay(startMode: SelectionOverlay.Mode, allInOne: Bool, timer: Bool = false, record: Bool = false) async {
+        guard !isCapturing, !recorder.isActive, ensurePermission() else { return }
         isCapturing = true
         defer { isCapturing = false }
         let previousApp = NSWorkspace.shared.frontmostApplication
@@ -145,11 +156,30 @@ final class AppState {
         options.showCrosshair = prefs.showCrosshair
         options.hideDesktopIcons = prefs.hideDesktopIcons
         options.hasPreviousArea = prefs.previousArea != nil
+        options.recording = record
         if allInOne { options.initialSelection = prefs.previousArea }
         let overlay = SelectionOverlay(options: options)
         let result = await overlay.run()
-        // Hand focus back to the app being captured, unless the capture opened in the editor.
-        defer { if !prefs.capturesOpenEditor { previousApp?.activate() } }
+        // Hand focus back to the app being captured, unless the capture opened in the editor. A
+        // recording keeps it on the recording bar, so Return and Escape reach it.
+        defer { if !prefs.capturesOpenEditor && !record { previousApp?.activate() } }
+
+        if record {
+            switch result {
+            case .cancelled:
+                break
+            case .area(let rect), .selfTimer(let rect), .recordArea(let rect):
+                prefs.previousArea = rect
+                startRecording(.area(rect))
+            case .window(let window):
+                startRecording(.window(window))
+            case .fullscreen(let displayID):
+                startRecording(.display(displayID))
+            case .previousArea:
+                if let rect = prefs.previousArea { startRecording(.area(rect)) }
+            }
+            return
+        }
 
         switch result {
         case .cancelled:
@@ -172,6 +202,54 @@ final class AppState {
             await captureFullscreen(displayID: displayID, alreadyCapturing: true)
         case .previousArea:
             if let rect = prefs.previousArea { await captureArea(rect, appName: appName, frozen: nil) }
+        case .recordArea(let rect):
+            prefs.previousArea = rect
+            startRecording(.area(rect))
+        }
+    }
+
+    // MARK: Recording
+
+    private func startRecording(_ source: RecordingSource) {
+        let title = FileNaming.name(template: prefs.fileNameTemplate, date: Date(),
+                                    appName: source.appName ?? ScreenGrabber.frontmostAppName, kind: source.kind)
+        recorder.begin(source, title: title)
+    }
+
+    private func recordingFinished(_ video: RecordedVideo) {
+        let model = VideoModel(video: video, format: prefs.videoFormat)
+        model.gifMaxWidth = prefs.gifSize.maxWidth
+        model.confirmsUnsavedClose = prefs.confirmUnsavedClose
+        model.closesAfterSave = prefs.closeEditorAfterSave
+        model.delegate = self
+        // "Save it and show a thumbnail" saves recordings straight away too.
+        if prefs.afterCapture == .quickAccess && prefs.saveAfterCapture,
+           let saved = copyFile(video.url, to: FileNaming.uniqueURL(in: prefs.saveFolder, name: video.title, ext: "mp4")) {
+            model.fileURL = saved
+            model.markHandled()
+        }
+        presentVideo(model)
+    }
+
+    func presentVideo(_ model: VideoModel) {
+        let controller = VideoWindowController(model: model)
+        videoWindows.append(controller)
+        controller.show()
+    }
+
+    /// The most recently opened recording window, for UI tests.
+    var lastVideoModel: VideoModel? { videoWindows.last?.model }
+
+    /// Replaces `target` with a copy of `source`.
+    private func copyFile(_ source: URL, to target: URL) -> URL? {
+        do {
+            if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
+            try FileManager.default.copyItem(at: source, to: target)
+            Log.note("recording saved \(target.path)")
+            return target
+        } catch {
+            report(error)
+            return nil
         }
     }
 
@@ -448,6 +526,7 @@ extension AppState: EditorDelegate {
     func editorStopAskingBeforeClose() {
         prefs.confirmUnsavedClose = false
         editors.forEach { $0.model.confirmsUnsavedClose = false }
+        videoWindows.forEach { $0.model.confirmsUnsavedClose = false }
     }
 
     func editorDidClose(_ editor: EditorModel) {
@@ -455,7 +534,53 @@ extension AppState: EditorDelegate {
         editors.removeAll { $0.model === editor }
         editorItems[id] = nil
         editorOwnsFile.remove(id)
-        // Back to a menu bar app once no editor is open.
-        if editors.isEmpty { NSApp.setActivationPolicy(.accessory) }
+        backToMenuBarIfNoWindows()
+    }
+
+    /// Back to a menu bar app once no editor or recording window is open.
+    private func backToMenuBarIfNoWindows() {
+        if editors.isEmpty && videoWindows.isEmpty { NSApp.setActivationPolicy(.accessory) }
+    }
+}
+
+// MARK: - Recording window
+
+extension AppState: VideoDelegate {
+    func videoSave(_ video: VideoModel, file: URL) -> URL? {
+        guard let current = video.fileURL else { return nil }
+        // Switching to GIF after saving the MP4 saves a GIF beside it rather than over it.
+        let target = current.pathExtension == file.pathExtension ? current
+            : FileNaming.uniqueURL(in: current.deletingLastPathComponent(), name: current.deletingPathExtension().lastPathComponent, ext: file.pathExtension)
+        return copyFile(file, to: target)
+    }
+
+    func videoSaveAs(_ video: VideoModel, file: URL) -> URL? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [file.pathExtension == "gif" ? .gif : .mpeg4Movie]
+        panel.directoryURL = video.fileURL?.deletingLastPathComponent() ?? prefs.saveFolder
+        panel.nameFieldStringValue = video.title + "." + file.pathExtension
+        panel.isExtensionHidden = false
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return copyFile(file, to: url)
+    }
+
+    func videoShare(_ video: VideoModel, file: URL, visibility: ShareVisibility) {
+        let gif = file.pathExtension == "gif"
+        sharing.share(file: file, title: video.title, mimeType: gif ? VideoFormat.gif.mimeType : VideoFormat.mp4.mimeType,
+                      pixelSize: gif ? nil : video.video.pixelSize, from: video, visibility: visibility)
+    }
+
+    func videoCanShare(_ visibility: ShareVisibility) -> Bool { editorCanShare(visibility) }
+    func videoShareService(_ visibility: ShareVisibility) -> String? { editorShareService(visibility) }
+    func videoShareHelp(_ visibility: ShareVisibility) -> String { editorShareHelp(visibility) }
+
+    func videoFormatChanged(_ format: VideoFormat) { prefs.videoFormat = format }
+
+    func videoStopAskingBeforeClose() { editorStopAskingBeforeClose() }
+
+    func videoDidClose(_ video: VideoModel) {
+        videoWindows.removeAll { $0.model === video }
+        backToMenuBarIfNoWindows()
     }
 }

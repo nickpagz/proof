@@ -21,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var state: AppState!
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
+    private var menuBarIcon: NSImage?
+    private var recordingTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExceptionLog.install()
@@ -34,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         icon?.isTemplate = true
         statusItem.button?.image = icon
         statusItem.button?.toolTip = "Proof"
+        menuBarIcon = icon
+        state.onRecordingChange = { [weak self] in self?.updateRecordingIndicator() }
         rebuildMenu()
         NSApp.mainMenu = makeMainMenu()
 
@@ -61,6 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Menu
 
     private func rebuildMenu() {
+        // The icon is a Stop button while recording; the menu comes back when it ends.
+        guard !state.recorder.isRecording else { return }
         let menu = NSMenu()
         menu.delegate = self
         if state.updates.shouldOffer, let update = state.updates.availableUpdate {
@@ -74,6 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for action in captureActions {
             menu.addItem(item(for: action))
         }
+        menu.addItem(.separator())
+        menu.addItem(item(for: .recordScreen))
         menu.addItem(.separator())
         let icons = NSMenuItem(title: state.prefs.hideDesktopIcons ? "Show Desktop Icons in Captures" : "Hide Desktop Icons in Captures",
                                action: #selector(toggleDesktopIcons), keyEquivalent: "")
@@ -134,6 +142,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let raw = sender.representedObject as? String, let action = HotKeyAction(rawValue: raw) else { return }
         // Let the menu close before an overlay or capture starts.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [state] in state?.perform(action) }
+    }
+
+    // MARK: Recording
+
+    /// While recording, the menu bar icon is a red Stop button showing the time so far.
+    private func updateRecordingIndicator() {
+        guard let button = statusItem.button else { return }
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        if case .recording(let since) = state.recorder.phase {
+            statusItem.menu = nil
+            statusItem.length = NSStatusItem.variableLength
+            button.image = symbol("stop.circle.fill")
+            button.contentTintColor = .systemRed
+            button.imagePosition = .imageLeading
+            button.toolTip = "Stop recording"
+            button.target = self
+            button.action = #selector(stopRecording)
+            let tick = { [weak button] in
+                button?.title = " " + RecordingController.elapsedLabel(Date().timeIntervalSince(since))
+            }
+            tick()
+            recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                MainActor.assumeIsolated { tick() }
+            }
+        } else {
+            button.title = ""
+            button.image = menuBarIcon
+            button.contentTintColor = nil
+            button.toolTip = "Proof"
+            button.action = nil
+            statusItem.length = NSStatusItem.squareLength
+            rebuildMenu()
+        }
+    }
+
+    @objc private func stopRecording() {
+        Task { await state.recorder.stop() }
     }
 
     @objc private func toggleDesktopIcons() { state.prefs.hideDesktopIcons.toggle() }

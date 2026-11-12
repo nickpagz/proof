@@ -84,6 +84,11 @@ in UserDefaults; `ShareHistory` keeps links and delete handles in
   with OAuth and owner-only private screenshots); the provider will move to that API when it ships.
 - **WordPress.com** signs in with the OAuth authorization-code flow on a loopback listener at
   127.0.0.1:52632 (Loominate uses 52631) and uploads with `POST /rest/v1.1/sites/{id}/media/new`.
+  Videos go to VideoPress the way Loominate does it: an upload token from
+  `POST /wpcom/v2/sites/{id}/media/videopress-upload-jwt`, then a resumable tus upload in 10 MB
+  chunks (`TusUploader`), then the title; the link is `videopress.com/v/{guid}`. A site without
+  VideoPress (from `options.videopress_enabled`, remembered when the site is chosen) or one that
+  refuses the token gets the MP4 in its media library instead.
   The app's ID and secret come from `.secrets/wpcom.env`, injected into the built Info.plist:
 
   ```
@@ -96,8 +101,21 @@ in UserDefaults; `ShareHistory` keeps links and delete handles in
 - **Adding a destination** (S3-compatible storage is next): implement `ShareProvider`, add a case
   to `ProviderKind` and `ShareDestination`, and a section to Settings → Sharing.
 
-`Scripts/test-sharing.sh` runs real uploads and deletes for both services against
-`Scripts/mock-share-server.py`, which plays CloudUp, S3 and WordPress.com and checks each request.
+`Scripts/test-sharing.sh` runs real uploads and deletes for both services, with an image and a
+12 MB video, against `Scripts/mock-share-server.py`, which plays CloudUp, S3, WordPress.com and
+VideoPress and checks each request. Its site 124 has no VideoPress.
+
+## Recording
+
+`Recording/` is Loominate's recording engine without the camera bubble. `RecordingConfig` builds
+the ScreenCaptureKit filter (an area is a display filter with a `sourceRect`; Proof's own windows,
+the bar and border among them, are left out) and `RecordingSession` writes video and up to two
+audio tracks to a .mov, starting at T0 after the countdown and repeating the last frame each
+second through still stretches. `Mixdown` turns that into an .mp4 with one audio track, because
+players (VideoPress included) play only the first. `RecordingController` runs the bar, border,
+countdown and Stop; `VideoWindow` is the result window, with AVPlayerView's own trim bar.
+`VideoExport` makes trimmed MP4s (encoded again, so the cut is frame-exact) and GIFs (the latest
+frame at each 1/15 s, repeats merged into longer frames).
 
 ## Headless test modes
 
@@ -115,6 +133,11 @@ $R --ui-test overlay all-in-one 300,200,700,450 # the real overlay, no capture a
 $R --ui-test quick-access /path/to/image.png     # a thumbnail in the Quick Access Overlay
 $R --ui-test editor /path/to/image.png --demo    # the editor with one of every annotation
 $R --render-demo /path/to/image.png --out /tmp/demo.png [--background]   # the renderer, no UI
+$R --record area --rect 100,100,640,360 --seconds 3 [--mic] [--system-audio] --out /tmp/rec.mp4
+$R --gif /tmp/rec.mp4 --out /tmp/rec.gif [--width 640] [--from 0.5 --to 2.5]
+$R --trim /tmp/rec.mp4 --from 0.5 --to 2.5 --out /tmp/cut.mp4
+$R --ui-test video /tmp/rec.mp4                  # the recording window
+$R --ui-test recording-bar 200,200,800,450       # the bar and border, without recording
 $R --providers                                   # sharing sign-in state and button mapping
 $R --share image.png --to cloudup|wordpress [--delete-after]
 Scripts/test-sharing.sh                          # both services end to end against a mock server

@@ -13,6 +13,8 @@ final class SelectionOverlay {
         case fullscreen(CGDirectDisplayID)
         case previousArea
         case selfTimer(CGRect)
+        /// All-In-One's Record button.
+        case recordArea(CGRect)
         case cancelled
     }
 
@@ -25,6 +27,8 @@ final class SelectionOverlay {
         var hideDesktopIcons = true
         var initialSelection: CGRect?
         var hasPreviousArea = false
+        /// Choosing what to record: a hint says how, and F picks the whole screen.
+        var recording = false
     }
 
     let options: Options
@@ -334,6 +338,8 @@ private final class OverlayView: NSView {
             } else {
                 overlay.selection = fit(selection.offsetBy(dx: dx, dy: dy))
             }
+        case 3 where overlay.options.recording && drag == nil: // F
+            overlay.finish(.fullscreen(displayID))
         default:
             super.keyDown(with: event)
         }
@@ -442,6 +448,12 @@ private final class OverlayView: NSView {
                 drawMagnifier(context)
             }
         }
+        if overlay.options.recording, !overlay.options.allInOne, overlay.selection == nil, displayBounds.contains(overlay.mouse) {
+            let hint = overlay.mode == .area
+                ? "Drag to record an area  ·  Click a window  ·  F records the whole screen  ·  Esc cancels"
+                : "Click a window to record it  ·  Space for an area  ·  Esc cancels"
+            drawLabel(hint, at: NSPoint(x: bounds.midX, y: bounds.maxY - 64), centered: true)
+        }
     }
 
     private func drawLabel(_ text: String, at point: NSPoint, centered: Bool) {
@@ -525,6 +537,9 @@ private struct OverlayToolbar: View {
             }
             button("Timer", "timer") {
                 if let selection = overlay.selection, selection.width >= 2 { overlay.finish(.selfTimer(selection.integral)) }
+            }
+            button("Record", "record.circle") {
+                if let selection = overlay.selection, selection.width >= 2 { overlay.finish(.recordArea(selection.integral)) }
             }
             Divider().frame(height: 22).padding(.horizontal, 4)
             Button("Capture") { overlay.confirmSelection() }

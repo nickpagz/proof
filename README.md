@@ -2,7 +2,7 @@
 
 <h1 align="center">Proof</h1>
 
-<p align="center"><strong>Screenshots for your Mac, saved where you want them.</strong></p>
+<p align="center"><strong>Screenshots and screen recordings for your Mac, saved where you want them.</strong></p>
 
 <p align="center">
 Proof lives in your menu bar. Press ⇧⌘4, drag over what you want to show, and it's saved and
@@ -23,6 +23,9 @@ capture on your Mac unless you decide to share it.
   as last time. A crosshair and magnifier help you land on the right pixel.
 - **All-In-One** (⇧⌘5) keeps the selection adjustable, with handles and a toolbar to switch modes
   or start the self-timer.
+- **Records** an area, a window or the whole screen (⇧⌘6) as MP4, with your microphone and your
+  Mac's sound if you want them, and click highlights. Each recording opens in its own window,
+  where you can trim it and save, copy, drag or share it as an MP4 or a GIF.
 - **Hides desktop icons** in every capture, without touching your desktop.
 - **Editor first, or save first**: by default each capture opens in the editor and nothing is
   saved until you choose Save as…. Or switch Settings → After capture to save straight away and
@@ -34,7 +37,8 @@ capture on your Mac unless you decide to share it.
   stays editable until you save, with full undo. Single-key tools: V R F O L A T X B S N M P H C.
 - **Shares** with two buttons in the editor, each titled with the service it uploads to: CloudUp
   (an unlisted link of its own) or your WordPress.com site's media library, under a random file
-  name by default so the link doesn't give away what it is. Settings → Sharing picks the service
+  name by default so the link doesn't give away what it is. Recordings go to the site's VideoPress
+  and share a VideoPress link (or to its media library when the site has no VideoPress). Settings → Sharing picks the service
   for each button. The link is copied, and Settings → Sharing keeps a list of recent shares where
   you can copy a link again or delete the upload.
 - **Saves** PNG, JPEG or HEIC to your Downloads folder (or anywhere), named the way you like.
@@ -71,13 +75,14 @@ Settings → Shortcuts in Proof shows a warning when a shortcut is taken.
 | ⇧⌘4 | Capture an area. Click without dragging to capture the window under the pointer. |
 | ⇧⌘5 | All-In-One: adjust the selection, then Capture or press Return |
 | ⇧⌘3 | Capture the screen under the pointer |
+| ⇧⌘6 | Record: drag an area, click a window, or press F for the whole screen. Choose the audio on the bar that appears, then Record. Press ⇧⌘6 again, or the Stop button in the menu bar, to stop. Clear it in Settings → Shortcuts to record from the menu only. |
 
 While selecting: **Space** switches to window mode, **Space while dragging** moves the selection,
 **Shift** makes a square, **Option** draws from the centre, the **arrow keys** nudge (Shift for
 10 points, Option to resize), **Escape** cancels.
 
 `proof://capture-area`, `capture-previous-area`, `capture-fullscreen`, `capture-window`,
-`all-in-one`, `self-timer`, `toggle-desktop-icons`, `restore-recently-closed` and `open-settings`
+`all-in-one`, `self-timer`, `record-screen`, `toggle-desktop-icons`, `restore-recently-closed` and `open-settings`
 do what they say.
 
 ## For developers

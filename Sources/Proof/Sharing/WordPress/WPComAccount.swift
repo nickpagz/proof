@@ -10,6 +10,9 @@ struct WPComAccount: Codable, Equatable {
     var siteID: Int?
     var siteName: String?
     var siteURL: String?
+    /// False when the site has no VideoPress, so recordings go to its media library; nil when
+    /// the site was chosen by a build that didn't record it.
+    var siteHasVideoPress: Bool?
 
     private static let defaultsKey = "wpcom.account.v2"
 
@@ -46,5 +49,6 @@ struct WPComAccount: Codable, Equatable {
         siteID = site?.id
         siteName = site?.name
         siteURL = site?.url
+        siteHasVideoPress = site?.hasVideoPress
     }
 }

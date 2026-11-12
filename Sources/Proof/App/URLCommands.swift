@@ -11,6 +11,7 @@ enum URLCommands {
         "capture-fullscreen": .captureFullscreen,
         "capture-window": .captureWindow,
         "self-timer": .selfTimer,
+        "record-screen": .recordScreen,
         "toggle-desktop-icons": .toggleDesktopIcons,
         "restore-recently-closed": .restoreLastCapture,
     ]

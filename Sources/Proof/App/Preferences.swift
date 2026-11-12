@@ -42,6 +42,35 @@ enum ShareDestination: String, CaseIterable, Codable, Identifiable {
     var label: String { provider?.label ?? "None" }
 }
 
+/// What the recording window saves, copies, drags and shares.
+enum VideoFormat: String, CaseIterable, Codable, Identifiable {
+    case mp4, gif
+    var id: String { rawValue }
+    var label: String { rawValue.uppercased() }
+    var fileExtension: String { rawValue }
+    var mimeType: String { self == .mp4 ? "video/mp4" : "image/gif" }
+}
+
+enum GIFSize: String, CaseIterable, Codable, Identifiable {
+    case small, medium, full
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .small: return "Small (640 px wide)"
+        case .medium: return "Medium (960 px wide)"
+        case .full: return "Full size"
+        }
+    }
+    /// Widest the GIF gets, in pixels; nil keeps the recording's size.
+    var maxWidth: Int? {
+        switch self {
+        case .small: return 640
+        case .medium: return 960
+        case .full: return nil
+        }
+    }
+}
+
 enum QuickAccessPosition: String, CaseIterable, Codable, Identifiable {
     case left, right
     var id: String { rawValue }
@@ -90,6 +119,21 @@ struct Preferences: Codable, Equatable {
     var playSound: Bool = true
     var selfTimerSeconds: Int = 5
 
+    // Recording. The microphone and computer audio can also be switched on the recording bar,
+    // which keeps the choice for next time.
+    var recordMicrophone: Bool = false
+    /// nil follows the system's default input.
+    var microphoneDeviceID: String?
+    var recordSystemAudio: Bool = false
+    var highlightClicks: Bool = true
+    var showCursorInRecordings: Bool = true
+    var recordingCountdown: Bool = true
+    var recordingFrameRate: Int = 30
+    /// Off records one pixel per point, which keeps files a quarter the size.
+    var recordAtFullResolution: Bool = false
+    var videoFormat: VideoFormat = .mp4
+    var gifSize: GIFSize = .medium
+
     // Quick Access Overlay
     var quickAccessPosition: QuickAccessPosition = .left
     /// 0 keeps the thumbnail until it is closed.
@@ -136,6 +180,8 @@ struct Preferences: Codable, Equatable {
         case saveFolderPath, fileNameTemplate, format, jpegQuality, scaleRetinaTo1x, convertToSRGB
         case afterCapture, confirmUnsavedClose, closeEditorAfterSave, showQuickAccess, saveAfterCapture, copyAfterCapture, openEditorAfterCapture
         case hideDesktopIcons, freezeScreen, showMagnifier, showCrosshair, windowBackground, playSound, selfTimerSeconds
+        case recordMicrophone, microphoneDeviceID, recordSystemAudio, highlightClicks, showCursorInRecordings
+        case recordingCountdown, recordingFrameRate, recordAtFullResolution, videoFormat, gifSize
         case quickAccessPosition, quickAccessAutoCloseSeconds, quickAccessCloseAfterDrag
         case privateDestination, publicDestination, copyLinkAfterShare, wordpressRandomFileNames
         case shortcuts, launchAtLogin, checkForUpdatesAutomatically, previousArea
@@ -167,6 +213,16 @@ struct Preferences: Codable, Equatable {
         windowBackground = try c.decodeIfPresent(WindowBackground.self, forKey: .windowBackground) ?? d.windowBackground
         playSound = try c.decodeIfPresent(Bool.self, forKey: .playSound) ?? d.playSound
         selfTimerSeconds = try c.decodeIfPresent(Int.self, forKey: .selfTimerSeconds) ?? d.selfTimerSeconds
+        recordMicrophone = try c.decodeIfPresent(Bool.self, forKey: .recordMicrophone) ?? d.recordMicrophone
+        microphoneDeviceID = try c.decodeIfPresent(String.self, forKey: .microphoneDeviceID)
+        recordSystemAudio = try c.decodeIfPresent(Bool.self, forKey: .recordSystemAudio) ?? d.recordSystemAudio
+        highlightClicks = try c.decodeIfPresent(Bool.self, forKey: .highlightClicks) ?? d.highlightClicks
+        showCursorInRecordings = try c.decodeIfPresent(Bool.self, forKey: .showCursorInRecordings) ?? d.showCursorInRecordings
+        recordingCountdown = try c.decodeIfPresent(Bool.self, forKey: .recordingCountdown) ?? d.recordingCountdown
+        recordingFrameRate = try c.decodeIfPresent(Int.self, forKey: .recordingFrameRate) ?? d.recordingFrameRate
+        recordAtFullResolution = try c.decodeIfPresent(Bool.self, forKey: .recordAtFullResolution) ?? d.recordAtFullResolution
+        videoFormat = try c.decodeIfPresent(VideoFormat.self, forKey: .videoFormat) ?? d.videoFormat
+        gifSize = try c.decodeIfPresent(GIFSize.self, forKey: .gifSize) ?? d.gifSize
         quickAccessPosition = try c.decodeIfPresent(QuickAccessPosition.self, forKey: .quickAccessPosition) ?? d.quickAccessPosition
         quickAccessAutoCloseSeconds = try c.decodeIfPresent(Int.self, forKey: .quickAccessAutoCloseSeconds) ?? d.quickAccessAutoCloseSeconds
         quickAccessCloseAfterDrag = try c.decodeIfPresent(Bool.self, forKey: .quickAccessCloseAfterDrag) ?? d.quickAccessCloseAfterDrag

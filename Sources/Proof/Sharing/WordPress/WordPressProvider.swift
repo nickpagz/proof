@@ -1,7 +1,8 @@
 import Foundation
 
 /// Uploads to the media library of one WordPress.com (or Jetpack) site and shares the file's
-/// URL. Media on a public site is public; on a private site only its members can open it.
+/// URL; videos go to the site's VideoPress when it has it, and share a VideoPress link. Media on
+/// a public site is public; on a private site only its members can open it.
 struct WordPressProvider: ShareProvider {
     let kind = ProviderKind.wordpress
     let account: WPComAccount?
@@ -12,6 +13,7 @@ struct WordPressProvider: ShareProvider {
         if env["PROOF_WPCOM_API"] != nil, let site = env["PROOF_WPCOM_SITE"].flatMap(Int.init) {
             var test = WPComAccount(scope: "global", userLogin: "tester", displayName: "Tester", signedInAt: Date())
             test.siteID = site
+            test.siteHasVideoPress = env["PROOF_WPCOM_VIDEOPRESS"] != "0"
             self.account = test
         } else {
             self.account = account
@@ -26,6 +28,11 @@ struct WordPressProvider: ShareProvider {
     func upload(_ file: ShareFile, progress: @escaping @Sendable (Double) -> Void) async throws -> ShareResult {
         guard let siteID = account?.siteID else { throw ShareError.notConfigured("Choose a WordPress.com site in Settings → Sharing.") }
         guard let token = WPComToken.load() else { throw ShareError.notConfigured("Sign in to WordPress.com in Settings → Sharing.") }
+
+        if file.mimeType.hasPrefix("video/"), account?.siteHasVideoPress != false,
+           let result = try await uploadToVideoPress(file, siteID: siteID, token: token, progress: progress) {
+            return result
+        }
 
         var form = MultipartForm()
         form.add("attrs[0][title]", file.title)
@@ -53,6 +60,50 @@ struct WordPressProvider: ShareProvider {
         let mediaID = (media["ID"] as? Int).map(String.init) ?? (media["ID"] as? String) ?? ""
         return ShareResult(url: url, directURL: url,
                            receipt: ShareReceipt(kind: .wordpress, identifiers: ["site": String(siteID), "media": mediaID]))
+    }
+
+    /// The resumable VideoPress upload Loominate uses. Nil when the site turns out to have no
+    /// VideoPress, so the caller puts the video in the media library instead.
+    private func uploadToVideoPress(_ file: ShareFile, siteID: Int, token: String,
+                                    progress: @escaping @Sendable (Double) -> Void) async throws -> ShareResult? {
+        let api = WPComAPI(token: token, session: WPComAPI.makeSession())
+        var retriedToken = false
+        while true {
+            let jwt: WPComAPI.UploadToken
+            do {
+                jwt = try await api.videoPressUploadToken(blogID: siteID)
+            } catch {
+                Log.note("no VideoPress upload token for site \(siteID) (\(error.localizedDescription)); using the media library")
+                return nil
+            }
+            do {
+                let completion = try await TusUploader(session: api.session).upload(
+                    file: file.url, endpoint: jwt.endpoint(defaultBlogID: siteID), token: jwt.uploadToken,
+                    metadata: [("filename", file.filename), ("filetype", file.mimeType)]
+                ) { sent, total in
+                    progress(total > 0 ? Double(sent) / Double(total) : 0)
+                }
+                Log.note("VideoPress upload done: guid \(completion.guid) media \(completion.mediaID)")
+                do {
+                    try await api.setMediaTitle(blogID: siteID, mediaID: completion.mediaID, title: file.title)
+                } catch {
+                    Log.note("VideoPress title not set (the video may still be processing): \(error.localizedDescription)")
+                }
+                return ShareResult(url: WPComConfig.videoPressURL(guid: completion.guid),
+                                   directURL: completion.srcURL.flatMap(URL.init(string:)),
+                                   receipt: ShareReceipt(kind: .wordpress, identifiers: [
+                                       "site": String(siteID), "media": String(completion.mediaID), "videopress": completion.guid,
+                                   ]))
+            } catch WPComError.authExpired where !retriedToken {
+                // The short-lived upload token can run out during a long upload; start over with a fresh one.
+                retriedToken = true
+                Log.note("VideoPress upload token rejected; starting again with a fresh one")
+            } catch WPComError.authExpired {
+                throw ShareError.badCredentials("WordPress.com no longer accepts the saved sign-in. Sign in again in Settings → Sharing.")
+            } catch let error as WPComError {
+                throw ShareError.server("VideoPress: \(error.localizedDescription)")
+            }
+        }
     }
 
     func delete(_ receipt: ShareReceipt) async throws {

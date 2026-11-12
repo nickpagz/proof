@@ -26,6 +26,11 @@ enum WPComConfig {
     /// Sign-in needs both halves of the OAuth app.
     static var isConfigured: Bool { !clientID.isEmpty && clientSecret != nil }
 
+    /// VideoPress's own player page, which works for any site's video.
+    static func videoPressURL(guid: String) -> URL {
+        URL(string: "https://videopress.com/v/\(guid)")!
+    }
+
     private static func infoValue(_ key: String) -> String? {
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }

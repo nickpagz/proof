@@ -31,7 +31,7 @@ enum ShareVisibility: String, Codable {
 
 /// State of one editor window: the document, the active tool and style, selection and undo.
 @MainActor @Observable
-final class EditorModel {
+final class EditorModel: ShareSink {
     private(set) var document: AnnotationDocument
     @ObservationIgnored let renderer: AnnotationRenderer
     var tool: EditorTool = .arrow {
