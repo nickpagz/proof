@@ -10,8 +10,8 @@ struct WPComAccount: Codable, Equatable {
     var siteID: Int?
     var siteName: String?
     var siteURL: String?
-    /// False when the site has no VideoPress, so recordings go to its media library; nil when
-    /// the site was chosen by a build that didn't record it.
+    /// What the site list last said about VideoPress, for the note in Settings. Uploads look the
+    /// site up again each time, so a plan upgrade counts straight away.
     var siteHasVideoPress: Bool?
 
     private static let defaultsKey = "wpcom.account.v2"

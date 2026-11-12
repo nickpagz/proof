@@ -69,6 +69,15 @@ struct WPComAPI {
         return try Self.decode(SitesResponse.self, from: data).sites
     }
 
+    /// One site, with the same fields as `sites()`.
+    func site(_ blogID: Int) async throws -> WPComSite {
+        let data = try await send(path: "rest/v1.1/sites/\(blogID)", method: "GET", form: nil, query: [
+            ("fields", "ID,name,URL,jetpack,jetpack_modules,is_private,capabilities,options"),
+            ("options", "videopress_enabled,is_wpcom_atomic"),
+        ])
+        return try Self.decode(WPComSite.self, from: data)
+    }
+
     func videoPressUploadToken(blogID: Int) async throws -> UploadToken {
         let data = try await send(path: "wpcom/v2/sites/\(blogID)/media/videopress-upload-jwt", method: "POST", form: [])
         return try Self.decode(UploadToken.self, from: data)

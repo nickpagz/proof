@@ -102,6 +102,7 @@ final class TusUploader: NSObject, URLSessionTaskDelegate {
         request.setValue("0", forHTTPHeaderField: "Content-Length")
         let (data, response) = try await WPComAPI.perform(request, on: session)
         guard (200..<300).contains(response.statusCode) else {
+            Self.logRejection("create", response, data)
             throw WPComAPI.mapError(status: response.statusCode, data: data)
         }
         guard let locationValue = response.value(forHTTPHeaderField: "Location"),
@@ -137,8 +138,19 @@ final class TusUploader: NSObject, URLSessionTaskDelegate {
         case 404:
             throw WPComError.failed("The upload session expired on the server. Retry the upload.")
         default:
+            Self.logRejection("chunk at \(offset)", http, body)
             throw WPComAPI.mapError(status: http.statusCode, data: body)
         }
+    }
+
+    /// VideoPress often answers a refusal with an empty body; the headers may say more.
+    private static func logRejection(_ step: String, _ response: HTTPURLResponse, _ body: Data) {
+        let headers = response.allHeaderFields.compactMap { key, value -> String? in
+            let name = "\(key)".lowercased()
+            guard !name.contains("token"), !name.contains("cookie") else { return nil }
+            return "\(name)=\(value)"
+        }.sorted().joined(separator: "; ")
+        Log.note("tus \(step) HTTP \(response.statusCode): body \(WPComAPI.redactedPreview(body)) headers \(headers)")
     }
 
     private func currentOffset(_ location: URL, token: String) async throws -> Int64 {

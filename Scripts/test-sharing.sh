@@ -40,6 +40,9 @@ PROOF_WPCOM_API="http://127.0.0.1:$PORT" PROOF_WPCOM_TOKEN=wptoken PROOF_WPCOM_S
 echo "== WordPress.com video, site without VideoPress (media library)"
 PROOF_WPCOM_API="http://127.0.0.1:$PORT" PROOF_WPCOM_TOKEN=wptoken PROOF_WPCOM_SITE=124 \
     "$APP" --share "$TMP/test clip.mp4" --to wordpress --title "Test clip" --delete-after
+echo "== WordPress.com video, VideoPress refuses the upload (media library)"
+PROOF_WPCOM_API="http://127.0.0.1:$PORT" PROOF_WPCOM_TOKEN=wptoken PROOF_WPCOM_SITE=125 \
+    "$APP" --share "$TMP/test clip.mp4" --to wordpress --title "Test clip" --delete-after
 
 echo "== Server log"
 curl -s "http://127.0.0.1:$PORT/log" | python3 -I -c '
@@ -49,12 +52,13 @@ events = [e.get("event") for e in log if "event" in e]
 errors = [e for e in log if "error" in e and e["error"] != "bad credentials"]
 for e in log: print("  ", e)
 want = ["cloudup.stream", "cloudup.item", "s3.upload", "cloudup.complete", "cloudup.delete", "wp.upload", "wp.delete",
-        "vp.jwt", "vp.create", "vp.chunk", "vp.done", "wp.title", "vp.nojwt"]
+        "wp.site", "vp.jwt", "vp.create", "vp.chunk", "vp.done", "wp.title", "vp.rejected"]
 missing = [w for w in want if w not in events]
 order = [events.index(w) for w in want if w in events]
 uploads = [e for e in log if e.get("event") in ("wp.upload", "vp.done", "s3.upload")]
 sizes = sorted({e["bytes"] for e in uploads})
 ok = (not missing and not errors and order == sorted(order) and all(e.get("png", True) for e in log)
-      and 12000000 in sizes and events.count("vp.chunk") == 2 and events.count("wp.upload") == 2 and events.count("wp.delete") == 3)
+      and 12000000 in sizes and events.count("vp.chunk") == 4 and events.count("wp.upload") == 3 and events.count("wp.delete") == 4
+      and events.count("vp.jwt") == 2 and "vp.nojwt" not in events)
 print("PASS" if ok else f"FAIL missing={missing} errors={errors}")
 sys.exit(0 if ok else 1)'

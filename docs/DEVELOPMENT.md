@@ -86,9 +86,12 @@ in UserDefaults; `ShareHistory` keeps links and delete handles in
   127.0.0.1:52632 (Loominate uses 52631) and uploads with `POST /rest/v1.1/sites/{id}/media/new`.
   Videos go to VideoPress the way Loominate does it: an upload token from
   `POST /wpcom/v2/sites/{id}/media/videopress-upload-jwt`, then a resumable tus upload in 10 MB
-  chunks (`TusUploader`), then the title; the link is `videopress.com/v/{guid}`. A site without
-  VideoPress (from `options.videopress_enabled`, remembered when the site is chosen) or one that
-  refuses the token gets the MP4 in its media library instead.
+  chunks (`TusUploader`), then the title; the link is `videopress.com/v/{guid}`. WordPress.com
+  hands out upload tokens even to sites without VideoPress and refuses the finished upload with an
+  empty HTTP 400, so each video share first reads the site's `options.videopress_enabled` (fresh,
+  so a plan upgrade counts at once), as Loominate's site picker does. Sites without it, and any
+  upload VideoPress still refuses, get the MP4 in the media library instead; network and server
+  errors are reported. `TusUploader` logs a refusal's status, body and headers.
   The app's ID and secret come from `.secrets/wpcom.env`, injected into the built Info.plist:
 
   ```

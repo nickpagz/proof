@@ -13,7 +13,6 @@ struct WordPressProvider: ShareProvider {
         if env["PROOF_WPCOM_API"] != nil, let site = env["PROOF_WPCOM_SITE"].flatMap(Int.init) {
             var test = WPComAccount(scope: "global", userLogin: "tester", displayName: "Tester", signedInAt: Date())
             test.siteID = site
-            test.siteHasVideoPress = env["PROOF_WPCOM_VIDEOPRESS"] != "0"
             self.account = test
         } else {
             self.account = account
@@ -29,7 +28,7 @@ struct WordPressProvider: ShareProvider {
         guard let siteID = account?.siteID else { throw ShareError.notConfigured("Choose a WordPress.com site in Settings → Sharing.") }
         guard let token = WPComToken.load() else { throw ShareError.notConfigured("Sign in to WordPress.com in Settings → Sharing.") }
 
-        if file.mimeType.hasPrefix("video/"), account?.siteHasVideoPress != false,
+        if file.mimeType.hasPrefix("video/"),
            let result = try await uploadToVideoPress(file, siteID: siteID, token: token, progress: progress) {
             return result
         }
@@ -62,16 +61,37 @@ struct WordPressProvider: ShareProvider {
                            receipt: ShareReceipt(kind: .wordpress, identifiers: ["site": String(siteID), "media": mediaID]))
     }
 
-    /// The resumable VideoPress upload Loominate uses. Nil when the site turns out to have no
-    /// VideoPress, so the caller puts the video in the media library instead.
+    /// The resumable VideoPress upload Loominate uses. Nil when the site has no VideoPress, so the
+    /// caller puts the video in the media library instead.
+    ///
+    /// WordPress.com hands out an upload token even to sites without VideoPress and only rejects
+    /// the finished upload, so the site's own `videopress_enabled` decides, as in Loominate. It's
+    /// looked up fresh each time so a plan upgrade counts straight away; a rejection still falls
+    /// back rather than failing the share.
     private func uploadToVideoPress(_ file: ShareFile, siteID: Int, token: String,
                                     progress: @escaping @Sendable (Double) -> Void) async throws -> ShareResult? {
         let api = WPComAPI(token: token, session: WPComAPI.makeSession())
+        let hasVideoPress: Bool
+        do {
+            hasVideoPress = try await api.site(siteID).hasVideoPress
+        } catch let error as WPComError where error.isRetryable {
+            throw ShareError.network(error.localizedDescription)
+        } catch {
+            Log.note("couldn't look up site \(siteID) (\(error.localizedDescription)); going by the saved site details")
+            hasVideoPress = account?.siteHasVideoPress ?? false
+        }
+        guard hasVideoPress else {
+            Log.note("site \(siteID) has no VideoPress; using the media library")
+            return nil
+        }
         var retriedToken = false
         while true {
             let jwt: WPComAPI.UploadToken
             do {
                 jwt = try await api.videoPressUploadToken(blogID: siteID)
+            } catch let error as WPComError where error.isRetryable {
+                // A network or server hiccup isn't a refusal; don't quietly send a VideoPress site's video elsewhere.
+                throw ShareError.network(error.localizedDescription)
             } catch {
                 Log.note("no VideoPress upload token for site \(siteID) (\(error.localizedDescription)); using the media library")
                 return nil
@@ -100,8 +120,11 @@ struct WordPressProvider: ShareProvider {
                 Log.note("VideoPress upload token rejected; starting again with a fresh one")
             } catch WPComError.authExpired {
                 throw ShareError.badCredentials("WordPress.com no longer accepts the saved sign-in. Sign in again in Settings → Sharing.")
-            } catch let error as WPComError {
+            } catch let error as WPComError where error.isRetryable {
                 throw ShareError.server("VideoPress: \(error.localizedDescription)")
+            } catch let error as WPComError {
+                Log.note("VideoPress rejected the upload (\(error.localizedDescription)); using the media library")
+                return nil
             }
         }
     }

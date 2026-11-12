@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """A stand-in for CloudUp's API, its S3 upload target, WordPress.com's media endpoints and
 VideoPress's resumable (tus) uploads, so the sharing code can be tested end to end without real
-accounts. Site 124 has no VideoPress, so its videos fall back to the media library. It checks each request the way the
+accounts. Site 124 has no VideoPress, so its videos go to the media library. Site 125 behaves like
+a real site without VideoPress whose details are wrong: it gets an upload token, then the finished
+upload is refused with an empty HTTP 400, and the video falls back to the media library. It checks each request the way the
 real service would care about and records what happened at GET /log.
 
     python3 Scripts/mock-share-server.py 8765 &
@@ -27,6 +29,7 @@ STATE = {"streams": set(), "items": {}, "s3": {}, "media": {}, "tus": {}}
 VP_TOKEN = "vp-upload-jwt"
 VP_KEY_TOKEN = "vp-key-token"
 NO_VIDEOPRESS = {"124"}
+REJECTS_UPLOAD = {"125"}
 
 
 def parse_multipart(body, content_type):
@@ -70,6 +73,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/log":
             return self.reply(200, LOG)
+        match = re.fullmatch(r"/rest/v1\.1/sites/(\d+)\?.*", self.path)
+        if match:
+            if self.headers.get("Authorization") != WP_AUTH:
+                return self.reply(403, {"error": "unauthorized", "message": "bad token"})
+            site = match.group(1)
+            videopress = site not in NO_VIDEOPRESS
+            LOG.append({"event": "wp.site", "site": site, "videopress": videopress})
+            return self.reply(200, {"ID": int(site), "name": "Test site", "URL": "https://example.wordpress.com", "jetpack": False,
+                                    "is_private": False, "capabilities": {"upload_files": True},
+                                    "options": {"videopress_enabled": videopress, "is_wpcom_atomic": False}})
         if self.path == "/1/user":
             if self.headers.get("Authorization") != CLOUDUP_AUTH:
                 return self.fail(401, "bad credentials")
@@ -212,6 +225,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail(409, "offset mismatch")
         upload["data"] += body
         LOG.append({"event": "vp.chunk", "bytes": len(body), "offset": len(upload["data"])})
+        if len(upload["data"]) >= upload["length"] and upload["site"] in REJECTS_UPLOAD:
+            LOG.append({"event": "vp.rejected", "site": upload["site"]})
+            self.send_response(400)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(204)
         self.send_header("Upload-Offset", str(len(upload["data"])))
         if len(upload["data"]) >= upload["length"]:
