@@ -332,6 +332,9 @@ private struct SharingSettings: View {
                     }
                     .controlSize(.small)
                 }
+                if let status = sharing.historyStatus {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
                 if let error = sharing.historyError {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }

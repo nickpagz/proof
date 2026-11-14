@@ -164,7 +164,7 @@ struct CloudUpProvider: ShareProvider {
         }
     }
 
-    func delete(_ receipt: ShareReceipt) async throws {
+    func delete(_ receipt: ShareReceipt) async throws -> ShareDeletionResult {
         guard let account, let password else { throw ShareError.notConfigured("Sign in to CloudUp to delete this upload.") }
         let auth = HTTP.basicAuth(account.username, password)
         if let stream = receipt.identifiers["stream"] {
@@ -172,6 +172,7 @@ struct CloudUpProvider: ShareProvider {
         } else if let item = receipt.identifiers["item"] {
             _ = try await json("DELETE", "items/\(item)", body: nil, auth: auth, allowMissing: true)
         }
+        return .deleted
     }
 
     // MARK: Plumbing

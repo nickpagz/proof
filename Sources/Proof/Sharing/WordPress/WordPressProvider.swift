@@ -6,8 +6,10 @@ import Foundation
 struct WordPressProvider: ShareProvider {
     let kind = ProviderKind.wordpress
     let account: WPComAccount?
+    private let deletionSession: URLSession
 
-    init(account: WPComAccount? = WPComAccount.load()) {
+    init(account: WPComAccount? = WPComAccount.load(), deletionSession: URLSession = HTTP.session) {
+        self.deletionSession = deletionSession
         // Against a test server the site comes from the environment, never from Settings.
         let env = ProcessInfo.processInfo.environment
         if env["PROOF_WPCOM_API"] != nil, let site = env["PROOF_WPCOM_SITE"].flatMap(Int.init) {
@@ -129,16 +131,35 @@ struct WordPressProvider: ShareProvider {
         }
     }
 
-    func delete(_ receipt: ShareReceipt) async throws {
-        guard let site = receipt.identifiers["site"], let media = receipt.identifiers["media"], !media.isEmpty else { return }
+    func delete(_ receipt: ShareReceipt) async throws -> ShareDeletionResult {
+        guard let site = receipt.identifiers["site"], let media = receipt.identifiers["media"], !media.isEmpty else {
+            throw ShareError.unexpected("the WordPress.com delete receipt is missing its site or media ID")
+        }
         guard let token = WPComToken.load() else { throw ShareError.notConfigured("Sign in to WordPress.com to delete this upload.") }
         var request = URLRequest(url: WPComConfig.apiBase.appending(path: "rest/v1.1/sites/\(site)/media/\(media)/delete"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await HTTP.send(request)
-        if response.statusCode == 404 { return }
+        let (data, response) = try await HTTP.send(request, on: deletionSession)
+        if Self.isMissingMedia(response, data) { return .alreadyMissing }
+
+        // The delete endpoint checks delete_post before looking up the attachment, so a
+        // missing attachment can return the same 403 as a real permissions failure.
+        if response.statusCode == 403, WPComAPI.parseErrorBody(data).code == "unauthorized" {
+            request.url = WPComConfig.apiBase.appending(path: "rest/v1.1/sites/\(site)/media/\(media)")
+            request.httpMethod = "GET"
+            let (lookupData, lookupResponse) = try await HTTP.send(request, on: deletionSession)
+            if Self.isMissingMedia(lookupResponse, lookupData) { return .alreadyMissing }
+            try Self.check(lookupResponse, lookupData)
+            // A readable attachment still exists: signing in again won't grant delete access.
+            throw ShareError.server("WordPress.com: you don't have permission to delete this media.")
+        }
         try Self.check(response, data)
+        return .deleted
+    }
+
+    private static func isMissingMedia(_ response: HTTPURLResponse, _ data: Data) -> Bool {
+        response.statusCode == 404 && WPComAPI.parseErrorBody(data).code == "unknown_media"
     }
 
     private static func check(_ response: HTTPURLResponse, _ data: Data) throws {

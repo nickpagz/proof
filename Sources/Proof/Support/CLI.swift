@@ -526,8 +526,8 @@ enum ShareCLI {
             print(result.url.absoluteString)
             if let direct = result.directURL, direct != result.url { print("direct: \(direct.absoluteString)") }
             if deleteAfter {
-                try await provider.delete(result.receipt)
-                print("deleted")
+                let deletion = try await provider.delete(result.receipt)
+                print(deletion == .alreadyMissing ? "media no longer exists; already deleted" : "deleted")
             }
         } catch {
             CLI.fail("share failed: \(error.localizedDescription)")

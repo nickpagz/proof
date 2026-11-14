@@ -9,6 +9,8 @@ let package = Package(
             name: "Proof",
             path: "Sources/Proof",
             swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+        ),
+        .testTarget(name: "ProofTests", dependencies: ["Proof"],
+                    swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )
