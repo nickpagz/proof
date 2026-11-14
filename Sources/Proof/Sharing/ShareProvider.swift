@@ -59,6 +59,12 @@ enum ShareError: LocalizedError {
     }
 }
 
+/// A successful delete can also mean the file was already removed on the service.
+enum ShareDeletionResult: Equatable {
+    case deleted
+    case alreadyMissing
+}
+
 /// One sharing service. Implementations keep their secrets in the Keychain and their non-secret
 /// settings in UserDefaults; S3-compatible storage can join later by implementing this.
 protocol ShareProvider {
@@ -71,7 +77,7 @@ protocol ShareProvider {
     var maxBytes: Int? { get }
 
     func upload(_ file: ShareFile, progress: @escaping @Sendable (Double) -> Void) async throws -> ShareResult
-    func delete(_ receipt: ShareReceipt) async throws
+    func delete(_ receipt: ShareReceipt) async throws -> ShareDeletionResult
 }
 
 extension ShareProvider {

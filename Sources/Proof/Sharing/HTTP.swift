@@ -146,7 +146,7 @@ enum HTTP {
         return URLSession(configuration: config)
     }()
 
-    static func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    static func send(_ request: URLRequest, on session: URLSession = session) async throws -> (Data, HTTPURLResponse) {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw ShareError.unexpected("not an HTTP response") }

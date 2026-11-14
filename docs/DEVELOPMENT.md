@@ -104,6 +104,13 @@ in UserDefaults; `ShareHistory` keeps links and delete handles in
 - **Adding a destination** (S3-compatible storage is next): implement `ShareProvider`, add a case
   to `ProviderKind` and `ShareDestination`, and a section to Settings → Sharing.
 
+If a WordPress.com delete returns `403 unauthorized`, Proof checks the same media item with
+an authenticated GET: the delete endpoint checks permissions before checking whether the attachment
+exists. Only `404 unknown_media` confirms it is already gone. Proof then removes its Recent shares
+entry and explains that the media no longer exists. Other failures keep the entry for retry; a
+readable attachment with delete access denied reports a permission error rather than asking for a
+new sign-in.
+
 `Scripts/test-sharing.sh` runs real uploads and deletes for both services, with an image and a
 12 MB video, against `Scripts/mock-share-server.py`, which plays CloudUp, S3, WordPress.com and
 VideoPress and checks each request. Its site 124 has no VideoPress.
@@ -126,6 +133,7 @@ The bundle's binary doubles as a CLI. `--help` lists everything.
 
 ```bash
 R=build/Proof.app/Contents/MacOS/Proof
+swift test --build-system native                 # deletion responses and Recent shares persistence; no accounts needed
 $R --self-test                                   # file names, geometry, shortcuts, encoders, prefs
 $R --displays                                    # displays with global bounds
 $R --windows                                     # capturable windows, frontmost first

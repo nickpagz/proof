@@ -16,7 +16,13 @@ protocol ShareSink: AnyObject {
 /// WordPress.com site list, and the history of uploads.
 @MainActor @Observable
 final class SharingController {
-    let history = ShareHistory()
+    let history: ShareHistory
+    @ObservationIgnored private let makeProvider: (ProviderKind) -> ShareProvider
+
+    init(history: ShareHistory? = nil, makeProvider: @escaping (ProviderKind) -> ShareProvider = ShareProviders.make) {
+        self.history = history ?? ShareHistory()
+        self.makeProvider = makeProvider
+    }
 
     // CloudUp sign-in form
     var cloudupAccount = CloudUpAccount.load()
@@ -35,6 +41,7 @@ final class SharingController {
     /// Records being deleted from their service.
     var deleting: Set<UUID> = []
     var historyError: String?
+    var historyStatus: String?
 
     @ObservationIgnored var prefs: () -> Preferences = { Preferences() }
     @ObservationIgnored var openSharingSettings: () -> Void = {}
@@ -139,14 +146,19 @@ final class SharingController {
 
     // MARK: History
 
-    func deleteRemote(_ record: ShareRecord) {
+    @discardableResult
+    func deleteRemote(_ record: ShareRecord) -> Task<Void, Never> {
         deleting.insert(record.id)
         historyError = nil
-        Task {
+        historyStatus = nil
+        return Task {
             defer { deleting.remove(record.id) }
             do {
-                try await ShareProviders.make(record.result.receipt.kind).delete(record.result.receipt)
+                let result = try await makeProvider(record.result.receipt.kind).delete(record.result.receipt)
                 history.remove(record.id)
+                if result == .alreadyMissing {
+                    historyStatus = "This media no longer exists on \(record.result.receipt.kind.label). Removed it from Recent shares."
+                }
                 Log.note("deleted share \(record.result.url.absoluteString)")
             } catch {
                 historyError = error.localizedDescription
