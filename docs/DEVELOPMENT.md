@@ -77,11 +77,42 @@ provider each. Secrets live in the Keychain (`Keychain` in `Sharing/HTTP.swift`)
 in UserDefaults; `ShareHistory` keeps links and delete handles in
 `~/Library/Application Support/Proof/shares.json`.
 
-- **CloudUp** uses the original API (`api.cloudup.com/1`) with Basic auth: POST /streams, POST
-  /items (which answers with an S3 POST policy), the file to S3 as a form with the file field last,
-  then PATCH the item `complete`. One stream per share, so a link never leads to other captures.
-  Delete removes the stream. CloudUp is being rebuilt (staff-only relaunch planned for late 2026,
-  with OAuth and owner-only private screenshots); the provider will move to that API when it ships.
+- **CloudUp** speaks two APIs, because cloudup.com is moving from one to the other on the same
+  host (`api.cloudup.com`) and Proof has to work on both sides of that day. `CloudUpAccount.api`
+  records which one a sign-in belongs to.
+  - *Original API* (`api.cloudup.com/1`, Basic auth, documented at dev.cloudup.com): POST
+    /streams, POST /items (which answers with an S3 POST policy), the file to S3 as a form with
+    the file field last, then PATCH the item `complete`.
+  - *Rebuilt CloudUp* (same host without `/1`, Bearer token): sign-in is the OAuth
+    authorization-code flow with PKCE on a loopback listener at 127.0.0.1:52633
+    (`auth.cloudup.com/auth`, then `POST /oauth/token`; `CloudUpAuth`). Tokens last six hours and
+    are renewed with the refresh token, one renewal at a time (`CloudUpTokenStore`), because
+    CloudUp replaces the refresh token on each use. Uploads are POST /streams, POST /items (which
+    answers with a presigned `s3_url`), PUT the file there with only a Content-Type header, then
+    PATCH the item `complete`.
+  - *Telling them apart* (`CloudUpConfig.classify`): the rebuilt CloudUp answers every
+    unauthenticated request, the old `/1` paths included, with `401 {"error":"access_denied"}`;
+    the original answers 401 without that. Settings asks when it opens and shows the matching
+    sign-in. A saved password that the server refuses this way gets "CloudUp has moved to signing
+    in through the browser" instead of "wrong password".
+
+  One stream per share on both, so a link never leads to other captures; delete removes the
+  stream, and stream IDs survive the move, so older shares stay deletable. Once cloudup.com has
+  moved, the original API's code can go.
+
+  Browser sign-in needs a CloudUp OAuth app with redirect URL `http://127.0.0.1:52633/callback`.
+  The rebuilt CloudUp has no open registration, so ask the CloudUp team for one. Its ID and secret
+  come from `.secrets/cloudup.env`, injected into the built Info.plist:
+
+  ```
+  CLOUDUP_CLIENT_ID=…
+  CLOUDUP_CLIENT_SECRET=…
+  ```
+
+  To try another CloudUp server, point Proof at it with that server's own app:
+  `PROOF_CLOUDUP_API=https://<its API host>/1` plus `PROOF_CLOUDUP_CLIENT_ID` and
+  `PROOF_CLOUDUP_CLIENT_SECRET`, then `Proof --sign-in cloudup`. Signing in there replaces the
+  saved cloudup.com sign-in, so sign out and back in afterwards.
 - **WordPress.com** signs in with the OAuth authorization-code flow on a loopback listener at
   127.0.0.1:52632 (Loominate uses 52631) and uploads with `POST /rest/v1.1/sites/{id}/media/new`.
   Videos go to VideoPress the way Loominate does it: an upload token from

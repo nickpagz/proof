@@ -31,6 +31,10 @@ final class SharingController {
     var cloudupPassword = ""
     var cloudupBusy = false
     var cloudupError: String?
+    /// Which API cloudup.com speaks, as last asked. Until then, what the saved sign-in used.
+    var cloudupAPI = CloudUpAccount.load()?.api ?? .legacy
+    /// The saved sign-in is for the original API and the server has moved to the rebuilt one.
+    var cloudupNeedsNewSignIn: Bool { cloudupAccount?.api == .legacy && cloudupAPI == .modern }
 
     // WordPress.com
     var wpAccount = WPComAccount.load()
@@ -202,6 +206,28 @@ final class SharingController {
             defer { cloudupBusy = false }
             do {
                 cloudupAccount = try await CloudUpProvider.signIn(username: cloudupUsername, password: cloudupPassword)
+                cloudupPassword = ""
+            } catch {
+                cloudupError = error.localizedDescription
+                await refreshCloudUpAPI()
+            }
+        }
+    }
+
+    /// Asks cloudup.com which API it speaks, so Settings offers the sign-in that will work.
+    /// Keeps the last answer when the server can't be reached.
+    func refreshCloudUpAPI() async {
+        if let api = await CloudUpConfig.detect() { cloudupAPI = api }
+    }
+
+    /// The rebuilt CloudUp signs in through the browser.
+    func signInToCloudUpInBrowser() {
+        cloudupBusy = true
+        cloudupError = nil
+        Task {
+            defer { cloudupBusy = false }
+            do {
+                cloudupAccount = try await CloudUpAuth.signIn()
                 cloudupPassword = ""
             } catch {
                 cloudupError = error.localizedDescription

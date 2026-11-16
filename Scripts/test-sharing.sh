@@ -1,6 +1,6 @@
 #!/bin/bash
-# Uploads a test image and a test video to the mock CloudUp, S3, WordPress.com and VideoPress
-# server and checks every step.
+# Uploads a test image and a test video to the mock CloudUp (original and rebuilt API), S3,
+# WordPress.com and VideoPress server and checks every step.
 # Usage: Scripts/test-sharing.sh   (after make build)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,6 +31,20 @@ if PROOF_CLOUDUP_API="http://127.0.0.1:$PORT/1" PROOF_CLOUDUP_USER=tester PROOF_
 echo "== CloudUp video"
 PROOF_CLOUDUP_API="http://127.0.0.1:$PORT/1" PROOF_CLOUDUP_USER=tester PROOF_CLOUDUP_PASSWORD=secret \
     "$APP" --share "$TMP/test clip.mp4" --to cloudup --title "Test clip" --delete-after
+echo "== CloudUp, rebuilt API"
+PROOF_CLOUDUP_API="http://127.0.0.1:$PORT/new/1" PROOF_CLOUDUP_TOKEN=cutoken \
+    "$APP" --share "$TMP/test shot.png" --to cloudup --title "Test shot" --delete-after
+echo "== CloudUp, rebuilt API, refused token (should fail cleanly)"
+if PROOF_CLOUDUP_API="http://127.0.0.1:$PORT/new/1" PROOF_CLOUDUP_TOKEN=stale \
+    "$APP" --share "$TMP/test shot.png" --to cloudup 2>&1; then echo "FAIL: accepted a stale token"; exit 1; fi
+echo "== CloudUp, rebuilt API, saved password from the original API (should say to sign in again)"
+if OUT="$(PROOF_CLOUDUP_API="http://127.0.0.1:$PORT/new/1" PROOF_CLOUDUP_USER=tester PROOF_CLOUDUP_PASSWORD=secret \
+    "$APP" --share "$TMP/test shot.png" --to cloudup 2>&1)"; then echo "FAIL: the rebuilt API took a password"; exit 1; fi
+echo "$OUT"
+grep -q "signing in through the browser" <<<"$OUT" || { echo "FAIL: no hint to sign in again"; exit 1; }
+echo "== CloudUp video, rebuilt API"
+PROOF_CLOUDUP_API="http://127.0.0.1:$PORT/new/1" PROOF_CLOUDUP_TOKEN=cutoken \
+    "$APP" --share "$TMP/test clip.mp4" --to cloudup --title "Test clip" --delete-after
 echo "== WordPress.com"
 PROOF_WPCOM_API="http://127.0.0.1:$PORT" PROOF_WPCOM_TOKEN=wptoken PROOF_WPCOM_SITE=123 \
     "$APP" --share "$TMP/test shot.png" --to wordpress --title "Test shot" --delete-after
@@ -51,14 +65,18 @@ log = json.load(sys.stdin)
 events = [e.get("event") for e in log if "event" in e]
 errors = [e for e in log if "error" in e and e["error"] != "bad credentials"]
 for e in log: print("  ", e)
-want = ["cloudup.stream", "cloudup.item", "s3.upload", "cloudup.complete", "cloudup.delete", "wp.upload", "wp.delete",
+want = ["cloudup.stream", "cloudup.item", "s3.upload", "cloudup.complete", "cloudup.delete",
+        "cloudup2.stream", "cloudup2.item", "s3.put", "cloudup2.complete", "cloudup2.delete", "wp.upload", "wp.delete",
         "wp.site", "vp.jwt", "vp.create", "vp.chunk", "vp.done", "wp.title", "vp.rejected"]
 missing = [w for w in want if w not in events]
 order = [events.index(w) for w in want if w in events]
-uploads = [e for e in log if e.get("event") in ("wp.upload", "vp.done", "s3.upload")]
+uploads = [e for e in log if e.get("event") in ("wp.upload", "vp.done", "s3.upload", "s3.put")]
+puts = [e for e in log if e.get("event") == "s3.put"]
 sizes = sorted({e["bytes"] for e in uploads})
 ok = (not missing and not errors and order == sorted(order) and all(e.get("png", True) for e in log)
       and 12000000 in sizes and events.count("vp.chunk") == 4 and events.count("wp.upload") == 3 and events.count("wp.delete") == 4
-      and events.count("vp.jwt") == 2 and "vp.nojwt" not in events)
+      and events.count("vp.jwt") == 2 and "vp.nojwt" not in events
+      and [e["type"] for e in puts] == ["image/png", "video/mp4"] and events.count("cloudup2.delete") == 2
+      and events.count("cloudup2.denied") == 2)
 print("PASS" if ok else f"FAIL missing={missing} errors={errors}")
 sys.exit(0 if ok else 1)'

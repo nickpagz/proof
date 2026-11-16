@@ -77,6 +77,25 @@ else
     echo "warning: no WordPress.com app (set WPCOM_CLIENT_ID and WPCOM_CLIENT_SECRET, or create .secrets/wpcom.env); WordPress.com sign-in is off in this build" >&2
 fi
 
+# CloudUp OAuth app for the rebuilt CloudUp's browser sign-in: from the environment or
+# .secrets/cloudup.env (gitignored). The original API's password sign-in needs neither.
+cloudup_value() {   # $1 variable name
+    local value="${!1:-}"
+    if [[ -z "$value" && -f "$ROOT/.secrets/cloudup.env" ]]; then
+        value="$(grep -E "^$1=" "$ROOT/.secrets/cloudup.env" | head -1 | cut -d= -f2- | tr -d "\"'" | tr -d '[:space:]')"
+    fi
+    printf '%s' "$value"
+}
+CLOUDUP_ID="$(cloudup_value CLOUDUP_CLIENT_ID)"
+CLOUDUP_SECRET="$(cloudup_value CLOUDUP_CLIENT_SECRET)"
+if [[ -n "$CLOUDUP_ID" && -n "$CLOUDUP_SECRET" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :ProofCloudUpClientID string $CLOUDUP_ID" "$APP/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :ProofCloudUpClientSecret string $CLOUDUP_SECRET" "$APP/Contents/Info.plist"
+    echo "Embedded the CloudUp app ID and secret."
+else
+    echo "warning: no CloudUp app (set CLOUDUP_CLIENT_ID and CLOUDUP_CLIENT_SECRET, or create .secrets/cloudup.env); CloudUp browser sign-in is off in this build" >&2
+fi
+
 # Version and build number, written into the built bundle only (Scripts/Info.plist keeps 1).
 PLIST="$APP/Contents/Info.plist"
 if [[ -n "${APP_VERSION:-}" ]]; then

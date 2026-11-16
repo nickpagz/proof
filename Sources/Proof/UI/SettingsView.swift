@@ -313,6 +313,23 @@ private struct SharingSettings: View {
     @Bindable var state: AppState
     @Bindable var sharing: SharingController
 
+    /// The rebuilt CloudUp's sign-in: one button, the browser does the rest.
+    @ViewBuilder private var cloudupBrowserSignIn: some View {
+        if CloudUpConfig.isConfigured {
+            HStack {
+                Button("Sign In with CloudUp…") { sharing.signInToCloudUpInBrowser() }
+                    .disabled(sharing.cloudupBusy)
+                if sharing.cloudupBusy { ProgressView().controlSize(.small) }
+            }
+        } else {
+            Text("This build has no CloudUp app, so browser sign-in is off. Add the app's ID and secret to .secrets/cloudup.env (see docs/DEVELOPMENT.md).")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        if let error = sharing.cloudupError {
+            Text(error).font(.caption).foregroundStyle(.red)
+        }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -338,9 +355,18 @@ private struct SharingSettings: View {
                             Button("Sign Out") { sharing.signOutOfCloudUp() }
                         }
                     }
+                    if sharing.cloudupNeedsNewSignIn {
+                        Text("CloudUp has moved to signing in through the browser, so this saved sign-in no longer works. Sign in again to keep sharing.")
+                            .font(.caption).foregroundStyle(.orange)
+                        cloudupBrowserSignIn
+                    }
                     Toggle("Copy the direct image link instead of the CloudUp page",
                            isOn: Binding(get: { account.linkToFile }, set: { sharing.setCloudUpLinkToFile($0) }))
                     Text("Each share gets its own CloudUp stream. Links are unlisted: anyone with the link can open it, and nobody can find it otherwise.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if sharing.cloudupAPI == .modern {
+                    cloudupBrowserSignIn
+                    Text("Your browser opens CloudUp to sign in. Proof keeps the resulting token in the macOS Keychain and never sees your password.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     TextField("Username or email", text: $sharing.cloudupUsername)
@@ -440,6 +466,7 @@ private struct SharingSettings: View {
         .task {
             if sharing.wpAccount != nil && sharing.wpSites.isEmpty { await sharing.loadSites() }
         }
+        .task { await sharing.refreshCloudUpAPI() }
     }
 
     private func confirmDelete(_ record: ShareRecord) {

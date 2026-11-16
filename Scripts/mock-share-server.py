@@ -9,6 +9,8 @@ real service would care about and records what happened at GET /log.
     python3 Scripts/mock-share-server.py 8765 &
     PROOF_CLOUDUP_API=http://127.0.0.1:8765/1 PROOF_CLOUDUP_USER=tester PROOF_CLOUDUP_PASSWORD=secret \\
         build/Proof.app/Contents/MacOS/Proof --share image.png --to cloudup --delete-after
+    PROOF_CLOUDUP_API=http://127.0.0.1:8765/new/1 PROOF_CLOUDUP_TOKEN=cutoken \\
+        build/Proof.app/Contents/MacOS/Proof --share image.png --to cloudup --delete-after
     PROOF_WPCOM_API=http://127.0.0.1:8765 PROOF_WPCOM_TOKEN=wptoken PROOF_WPCOM_SITE=123 \\
         build/Proof.app/Contents/MacOS/Proof --share image.png --to wordpress --delete-after
 
@@ -24,8 +26,11 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 BASE = f"http://127.0.0.1:{PORT}"
 CLOUDUP_AUTH = "Basic " + base64.b64encode(b"tester:secret").decode()
 WP_AUTH = "Bearer wptoken"
+# The rebuilt CloudUp lives under /new: Bearer tokens, a presigned PUT for the file, and an OAuth
+# error for every unauthenticated request, the original API's /1 paths included.
+CLOUDUP2_AUTH = "Bearer cutoken"
 LOG = []
-STATE = {"streams": set(), "items": {}, "s3": {}, "media": {}, "tus": {}}
+STATE = {"streams": set(), "items": {}, "s3": {}, "media": {}, "tus": {}, "streams2": set(), "items2": {}}
 VP_TOKEN = "vp-upload-jwt"
 VP_KEY_TOKEN = "vp-key-token"
 NO_VIDEOPRESS = {"124"}
@@ -70,9 +75,25 @@ class Handler(BaseHTTPRequestHandler):
         LOG.append({"error": message, "path": self.path})
         self.reply(status, {"message": message})
 
+    def cloudup2_denied(self):
+        """True, after answering, when a /new request has no valid token."""
+        if self.headers.get("Authorization") == CLOUDUP2_AUTH:
+            return False
+        LOG.append({"event": "cloudup2.denied", "path": self.path})
+        self.reply(401, {"error": "access_denied", "error_description": "The resource owner or authorization server denied the request.",
+                         "hint": "Missing \"Authorization\" header"})
+        return True
+
     def do_GET(self):
         if self.path == "/log":
             return self.reply(200, LOG)
+        if self.path.startswith("/new/"):
+            if self.cloudup2_denied():
+                return
+            if self.path == "/new/users":
+                LOG.append({"event": "cloudup2.user"})
+                return self.reply(200, {"username": "tester", "name": "Test Person"})
+            return self.fail(404, "no route")
         match = re.fullmatch(r"/rest/v1\.1/sites/(\d+)\?.*", self.path)
         if match:
             if self.headers.get("Authorization") != WP_AUTH:
@@ -93,6 +114,30 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.body()
         ctype = self.headers.get("Content-Type", "")
+        # Rebuilt CloudUp
+        if self.path.startswith("/new/"):
+            if self.cloudup2_denied():
+                return
+            obj = json.loads(body or b"{}")
+            if self.path == "/new/streams":
+                sid = f"cNew{len(STATE['streams2']) + 1}"
+                STATE["streams2"].add(sid)
+                LOG.append({"event": "cloudup2.stream", "title": obj.get("title")})
+                return self.reply(201, {"id": sid, "url": f"https://cloudup.com/{sid}"})
+            if self.path == "/new/items":
+                for field in ("filename", "size", "stream_id"):
+                    if not obj.get(field):
+                        return self.fail(400, f"{field} is required.")
+                if obj["stream_id"] not in STATE["streams2"]:
+                    return self.fail(404, "no such stream")
+                iid = f"iNew{len(STATE['items2']) + 1}"
+                key = f"uTester/{iid}/{obj['filename']}"
+                STATE["items2"][iid] = {"stream": obj["stream_id"], "key": key, "size": obj["size"], "complete": False}
+                LOG.append({"event": "cloudup2.item", "filename": obj["filename"], "size": obj["size"], "mime": obj.get("mime")})
+                # No s3_key or policy: the rebuilt API hands out one presigned address.
+                return self.reply(200, {"id": iid, "url": f"https://cloudup.com/{iid}", "direct_url": f"https://cldup.com/{key}",
+                                        "s3_url": f"{BASE}/new-s3/{iid}?X-Amz-Signature=test"})
+            return self.fail(404, "no route")
         # CloudUp
         if self.path.startswith("/1/"):
             if self.headers.get("Authorization") != CLOUDUP_AUTH:
@@ -244,8 +289,43 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def do_PUT(self):
+        # The rebuilt CloudUp's presigned S3 address: the raw file as the body, no form.
+        body = self.body()
+        match = re.fullmatch(r"/new-s3/(\w+)\?X-Amz-Signature=test", self.path)
+        item = STATE["items2"].get(match.group(1)) if match else None
+        if item is None:
+            return self.fail(403, "unknown presigned address")
+        if self.headers.get("Authorization"):
+            return self.fail(400, "a presigned address takes no Authorization header")
+        unsigned = [name for name in self.headers if name.lower().startswith("x-amz-")]
+        if unsigned:
+            return self.fail(403, f"headers present that were not signed: {unsigned}")
+        if len(body) != item["size"]:
+            return self.fail(400, f"size mismatch: got {len(body)}, item says {item['size']}")
+        STATE["s3"][item["key"]] = body
+        event = {"event": "s3.put", "key": item["key"], "bytes": len(body), "type": self.headers.get("Content-Type")}
+        if item["key"].endswith(".png"):
+            event["png"] = body[:8] == b"\x89PNG\r\n\x1a\n"
+        LOG.append(event)
+        return self.reply(200)
+
     def do_PATCH(self):
         body = self.body()
+        if self.path.startswith("/new/"):
+            if self.cloudup2_denied():
+                return
+            iid = self.path.rsplit("/", 1)[-1]
+            item = STATE["items2"].get(iid)
+            if item is None:
+                return self.fail(404, "no such item")
+            if json.loads(body or b"{}").get("complete") is not True:
+                return self.fail(400, "expected complete: true")
+            if item["key"] not in STATE["s3"]:
+                return self.fail(400, "completed before the file arrived")
+            item["complete"] = True
+            LOG.append({"event": "cloudup2.complete", "item": iid})
+            return self.reply(200, {"id": iid, "url": f"https://cloudup.com/{iid}", "direct_url": f"https://cldup.com/{item['key']}"})
         if self.headers.get("Authorization") != CLOUDUP_AUTH:
             return self.fail(401, "bad credentials")
         iid = self.path.rsplit("/", 1)[-1]
@@ -261,6 +341,15 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply(200, {"id": iid, "url": f"https://cloudup.com/{iid}", "direct_url": f"https://cldup.com/{item['key']}"})
 
     def do_DELETE(self):
+        if self.path.startswith("/new/"):
+            if self.cloudup2_denied():
+                return
+            sid = self.path.rsplit("/", 1)[-1]
+            if sid not in STATE["streams2"]:
+                return self.fail(404, "no such stream")
+            STATE["streams2"].discard(sid)
+            LOG.append({"event": "cloudup2.delete", "stream": sid})
+            return self.reply(204)
         if self.headers.get("Authorization") != CLOUDUP_AUTH:
             return self.fail(401, "bad credentials")
         sid = self.path.rsplit("/", 1)[-1]

@@ -30,6 +30,7 @@ enum CLI {
       --providers                         sign-in state of each sharing service and the editor buttons
       --share <file> --to cloudup|wordpress [--title T] [--delete-after]
                                           upload a file, print the link; --delete-after removes it again
+      --sign-in cloudup                   sign in to the rebuilt CloudUp through the browser
 
     Agents
       --mcp                               an MCP server on stdin/stdout for AI agents; it asks the
@@ -110,6 +111,22 @@ enum CLI {
             }
             print("Share Private → \(prefs.privateDestination.label), Share Public → \(prefs.publicDestination.label)")
             print("WordPress.com app in this build: \(WPComConfig.isConfigured ? "yes" : "no")")
+            print("CloudUp app in this build: \(CloudUpConfig.isConfigured ? "yes" : "no")")
+            runBlocking {
+                let api = await CloudUpConfig.detect()
+                print("CloudUp at \(CloudUpConfig.legacyBase.host ?? "?"): \(api.map { $0 == .modern ? "rebuilt API (browser sign-in)" : "original API (password)" } ?? "couldn't tell")")
+            }
+            exit(0)
+        case "--sign-in":
+            guard args.count > 1, args[1] == "cloudup" else { fail("usage: Proof --sign-in cloudup") }
+            runBlocking {
+                do {
+                    let account = try await CloudUpAuth.signIn()
+                    print("signed in to CloudUp as \(account.username)")
+                } catch {
+                    fail(error.localizedDescription)
+                }
+            }
             exit(0)
         case "--share":
             guard args.count > 1, let to = value("--to", in: args), let kind = ProviderKind(rawValue: to) else {
