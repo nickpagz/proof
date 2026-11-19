@@ -287,6 +287,8 @@ struct AnnotationDocument: Codable, Equatable {
     var annotations: [Annotation] = []
     /// Visible part of the image in image points; nil shows all of it.
     var crop: CGRect?
+    /// A Custom crop's required output size, restored with the crop on undo/redo.
+    var exactCropSize: CropPixelSize?
     var background = BackgroundSettings()
 
     var visibleRect: CGRect { crop ?? CGRect(origin: .zero, size: imageSize) }

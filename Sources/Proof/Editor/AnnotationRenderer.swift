@@ -52,13 +52,16 @@ final class AnnotationRenderer {
     func render(_ document: AnnotationDocument) -> CGImage? {
         let layout = Self.layout(document)
         let scale = document.scale
-        let width = Int((layout.outputSize.width * scale).rounded()), height = Int((layout.outputSize.height * scale).rounded())
+        let exact = document.exactCropSize
+        let width = exact?.width ?? Int((layout.outputSize.width * scale).rounded())
+        let height = exact?.height ?? Int((layout.outputSize.height * scale).rounded())
         guard width > 0, height > 0,
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: scale, y: -scale)
+        context.scaleBy(x: exact == nil ? scale : CGFloat(width) / layout.outputSize.width,
+                        y: exact == nil ? -scale : -CGFloat(height) / layout.outputSize.height)
         draw(document, in: context)
         return context.makeImage()
     }

@@ -437,6 +437,23 @@ private struct EditorBottomBar: View {
     @Bindable var model: EditorModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            controlRow
+            if model.tool == .crop, let problem = model.cropProblem {
+                Text(problem)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+        }
+        .background(.bar)
+    }
+
+    private var controlRow: some View {
         HStack(spacing: 10) {
             Menu {
                 Button("Fit to Window") { model.zoom = nil; model.onZoomChange?() }
@@ -452,12 +469,7 @@ private struct EditorBottomBar: View {
 
             Spacer()
             if model.tool == .crop {
-                Button("Cancel") { model.cancelCrop() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Reset") { model.resetCrop() }
-                Button("Apply Crop") { model.applyCrop() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+                cropControls
             } else if let progress = model.uploadProgress {
                 VStack(spacing: 3) {
                     Text(model.uploadLabel).font(.caption).foregroundStyle(.secondary)
@@ -472,14 +484,49 @@ private struct EditorBottomBar: View {
             }
             Spacer()
 
-            ShareSheetButton(model: model).frame(width: 34, height: 28).hoverHint("Share…")
-            iconButton("doc.on.doc", help: "Copy (⌘C)") { model.copy() }
-            shareButton(.private)
-            shareButton(.public)
+            if model.tool != .crop {
+                ShareSheetButton(model: model).frame(width: 34, height: 28).hoverHint("Share…")
+                iconButton("doc.on.doc", help: "Copy (⌘C)") { model.copy() }
+                shareButton(.private)
+                shareButton(.public)
+            }
         }
         .padding(.horizontal, 12)
         .frame(height: 48)
-        .background(.bar)
+    }
+
+    private var cropControls: some View {
+        HStack(spacing: 10) {
+            Picker("Format", selection: Binding(get: { model.cropFormat }, set: model.selectCropFormat)) {
+                ForEach(CropFormat.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .fixedSize()
+            if model.cropFormat == .custom {
+                HStack(spacing: 4) {
+                    cropDimension("Width", text: $model.cropWidth)
+                    Text("×").foregroundStyle(.secondary)
+                    cropDimension("Height", text: $model.cropHeight)
+                    Text("px").foregroundStyle(.secondary)
+                }
+            }
+            Button("Cancel") { model.cancelCrop() }
+                .keyboardShortcut(.cancelAction)
+            Button("Reset") { model.resetCrop() }
+            Button("Apply Crop") { model.applyCrop() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!model.canApplyCrop)
+        }
+    }
+
+    private func cropDimension(_ label: String, text: Binding<String>) -> some View {
+        TextField(label, text: text)
+            .accessibilityLabel(label)
+            .multilineTextAlignment(.trailing)
+            .monospacedDigit()
+            .frame(width: 62)
+            .help("\(label) in pixels")
     }
 
     private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {

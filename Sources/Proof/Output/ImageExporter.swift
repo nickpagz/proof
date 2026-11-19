@@ -13,10 +13,10 @@ enum ImageExporter {
 
         init() {}
 
-        init(_ prefs: Preferences) {
+        init(_ prefs: Preferences, preservePixelSize: Bool = false) {
             format = prefs.format
             jpegQuality = prefs.jpegQuality
-            scaleTo1x = prefs.scaleRetinaTo1x
+            scaleTo1x = !preservePixelSize && prefs.scaleRetinaTo1x
             convertToSRGB = prefs.convertToSRGB
         }
     }

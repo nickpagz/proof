@@ -524,7 +524,8 @@ extension AppState: EditorDelegate {
 
     private func write(_ editor: EditorModel, image: CGImage, pointSize: CGSize, to url: URL) -> URL? {
         do {
-            try ImageExporter.write(image, pointSize: pointSize, to: url, options: ImageExporter.Options(prefs))
+            let options = ImageExporter.Options(prefs, preservePixelSize: editor.document.exactCropSize != nil)
+            try ImageExporter.write(image, pointSize: pointSize, to: url, options: options)
         } catch {
             report(error)
             return nil
