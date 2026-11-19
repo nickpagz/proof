@@ -92,6 +92,11 @@ enum SelfTest {
                 check("encode \(format.label)", false, "no data")
                 continue
             }
+            if format == .webp {
+                check("encode WebP keeps pixels and file type", decoded.width == 200 && decoded.height == 100
+                      && (CGImageSourceGetType(source) as String?) == "org.webmproject.webp")
+                continue
+            }
             let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
             let dpi = props?[kCGImagePropertyDPIWidth] as? Double ?? 0
             check("encode \(format.label) keeps pixels and Retina DPI", decoded.width == 200 && Int(dpi.rounded()) == 144, "\(decoded.width) px, \(dpi) dpi")

@@ -65,7 +65,7 @@ final class AppState {
         recorder.state = self
         recorder.onFinished = { [weak self] video in self?.recordingFinished(video) }
         recorder.onPhaseChange = { [weak self] in self?.onRecordingChange?() }
-        scroller.onFinished = { [weak self] capture in self?.finish(capture) }
+        scroller.onFinished = { [weak self] capture in _ = self?.finish(capture) }
         agents.tools.state = self
         updates.isAppBusy = { [weak self] in
             guard let self else { return false }
@@ -175,7 +175,12 @@ final class AppState {
         let result = await overlay.run()
         // Hand focus back to the app being captured, unless the capture opened in the editor. A
         // recording or scrolling capture keeps it on its bar, so Return and Escape reach it.
-        defer { if !prefs.capturesOpenEditor && !record && !scrolling { previousApp?.activate() } }
+        var openedEditor = false
+        defer {
+            if !openedEditor && !record && !scrolling && !recorder.isActive && !scroller.isActive {
+                previousApp?.activate()
+            }
+        }
 
         if record {
             switch result {
@@ -218,20 +223,20 @@ final class AppState {
             prefs.previousArea = rect
             if timer {
                 guard await CountdownHUD.run(seconds: prefs.selfTimerSeconds) else { return }
-                await captureArea(rect, appName: appName, frozen: nil)
+                openedEditor = await captureArea(rect, appName: appName, frozen: nil)
             } else {
-                await captureArea(rect, appName: appName, frozen: prefs.freezeScreen ? overlay : nil)
+                openedEditor = await captureArea(rect, appName: appName, frozen: prefs.freezeScreen ? overlay : nil)
             }
         case .selfTimer(let rect):
             prefs.previousArea = rect
             guard await CountdownHUD.run(seconds: prefs.selfTimerSeconds) else { return }
-            await captureArea(rect, appName: appName, frozen: nil)
+            openedEditor = await captureArea(rect, appName: appName, frozen: nil)
         case .window(let window):
-            await captureWindow(window)
+            openedEditor = await captureWindow(window)
         case .fullscreen(let displayID):
-            await captureFullscreen(displayID: displayID, alreadyCapturing: true)
+            openedEditor = await captureFullscreen(displayID: displayID, alreadyCapturing: true)
         case .previousArea:
-            if let rect = prefs.previousArea { await captureArea(rect, appName: appName, frozen: nil) }
+            if let rect = prefs.previousArea { openedEditor = await captureArea(rect, appName: appName, frozen: nil) }
         case .recordArea(let rect):
             prefs.previousArea = rect
             startRecording(.area(rect))
@@ -297,22 +302,25 @@ final class AppState {
         await captureArea(rect, appName: ScreenGrabber.frontmostAppName, frozen: nil)
     }
 
-    func captureFullscreen(displayID: CGDirectDisplayID, alreadyCapturing: Bool = false) async {
+    @discardableResult
+    func captureFullscreen(displayID: CGDirectDisplayID, alreadyCapturing: Bool = false) async -> Bool {
         if !alreadyCapturing {
-            guard !isCapturing, ensurePermission() else { return }
+            guard !isCapturing, ensurePermission() else { return false }
             isCapturing = true
         }
         defer { if !alreadyCapturing { isCapturing = false } }
         let bounds = CGDisplayBounds(displayID)
         do {
             let image = try await ScreenGrabber.capture(displayID: displayID, hideDesktopIcons: prefs.hideDesktopIcons)
-            finish(Capture(image: image, pointSize: bounds.size, kind: .fullscreen, appName: ScreenGrabber.frontmostAppName, date: Date()))
+            return finish(Capture(image: image, pointSize: bounds.size, kind: .fullscreen, appName: ScreenGrabber.frontmostAppName, date: Date()))
         } catch {
             report(error)
+            return false
         }
     }
 
-    private func captureArea(_ rect: CGRect, appName: String?, frozen overlay: SelectionOverlay?) async {
+    @discardableResult
+    private func captureArea(_ rect: CGRect, appName: String?, frozen overlay: SelectionOverlay?) async -> Bool {
         do {
             let image: CGImage
             if let overlay, let displayID = ScreenGeometry.displayID(containing: rect),
@@ -321,18 +329,20 @@ final class AppState {
             } else {
                 image = try await ScreenGrabber.capture(rect: rect, hideDesktopIcons: prefs.hideDesktopIcons)
             }
-            finish(Capture(image: image, pointSize: rect.size, kind: .area, appName: appName, date: Date()))
+            return finish(Capture(image: image, pointSize: rect.size, kind: .area, appName: appName, date: Date()))
         } catch {
             report(error)
+            return false
         }
     }
 
-    private func captureWindow(_ window: PickableWindow) async {
+    private func captureWindow(_ window: PickableWindow) async -> Bool {
         do {
             let (image, size) = try await ScreenGrabber.capture(windowID: window.id, shadow: prefs.windowBackground == .shadow)
-            finish(Capture(image: image, pointSize: size, kind: .window, appName: window.ownerName, date: Date()))
+            return finish(Capture(image: image, pointSize: size, kind: .window, appName: window.ownerName, date: Date()))
         } catch {
             report(error)
+            return false
         }
     }
 
@@ -346,13 +356,15 @@ final class AppState {
 
     // MARK: After capture
 
-    private func finish(_ capture: Capture) {
+    /// Returns whether the capture actually opened in the editor.
+    @discardableResult
+    private func finish(_ capture: Capture) -> Bool {
         if prefs.playSound { ShutterSound.play() }
         if prefs.afterCapture == .editor {
             Log.note("captured \(capture.kind.rawValue) \(capture.image.width)x\(capture.image.height) → editor")
             // The item isn't shown; it carries the capture so Save as… can name it.
             openEditor(for: QuickAccessItem(capture: capture, savedURL: nil))
-            return
+            return true
         }
         var savedURL: URL?
         if prefs.saveAfterCapture {
@@ -366,12 +378,20 @@ final class AppState {
         if prefs.showQuickAccess {
             quickAccess.show(item)
         }
-        if prefs.openEditorAfterCapture {
+        if Self.shouldOpenAfterCapture(prefs, savedURL: savedURL) {
             openEditor(for: item)
-        } else if !prefs.showQuickAccess && !prefs.saveAfterCapture && !prefs.copyAfterCapture {
+            return true
+        }
+        if !prefs.showQuickAccess && savedURL == nil && !prefs.copyAfterCapture {
             // Nothing else would keep the capture; don't lose it.
             ImageExporter.copyToClipboard(capture.image, pointSize: capture.pointSize, file: nil)
         }
+        return false
+    }
+
+    nonisolated static func shouldOpenAfterCapture(_ prefs: Preferences, savedURL: URL?) -> Bool {
+        // Keep failed save-only captures available so the user can try another format or folder.
+        prefs.openEditorAfterCapture || (prefs.saveAfterCapture && savedURL == nil && !prefs.showQuickAccess)
     }
 
     func fileName(for capture: Capture) -> String {
@@ -513,7 +533,7 @@ extension AppState: EditorDelegate {
 
     func editorSaveAs(_ editor: EditorModel, image: CGImage, pointSize: CGSize) -> URL? {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg, .heic]
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .webP]
         panel.directoryURL = editor.fileURL?.deletingLastPathComponent() ?? prefs.saveFolder
         panel.nameFieldStringValue = (editor.fileURL?.deletingPathExtension().lastPathComponent ?? editor.title) + "." + prefs.format.fileExtension
         // The extension picks the format, so keep it visible and editable.
@@ -524,7 +544,8 @@ extension AppState: EditorDelegate {
 
     private func write(_ editor: EditorModel, image: CGImage, pointSize: CGSize, to url: URL) -> URL? {
         do {
-            try ImageExporter.write(image, pointSize: pointSize, to: url, options: ImageExporter.Options(prefs))
+            try ImageExporter.write(image, pointSize: pointSize, to: url, options: ImageExporter.Options(prefs),
+                                    filenameFormats: .editor)
         } catch {
             report(error)
             return nil

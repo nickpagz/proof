@@ -88,7 +88,19 @@ final class QuickAccessController {
 
     fileprivate func copy(_ panel: QuickAccessPanel) { delegate?.quickAccessCopy(panel.item); panel.flash("Copied") }
     fileprivate func save(_ panel: QuickAccessPanel) {
-        if panel.item.savedURL != nil { delegate?.quickAccessReveal(panel.item) } else { delegate?.quickAccessSave(panel.item); panel.refreshButtons(); panel.flash("Saved") }
+        if panel.item.savedURL != nil {
+            delegate?.quickAccessReveal(panel.item)
+            return
+        }
+        delegate?.quickAccessSave(panel.item)
+        panel.refreshButtons()
+        if panel.item.savedURL != nil {
+            panel.flash("Saved")
+        } else {
+            panel.flash("Not saved")
+            // Keep the thumbnail and open the editor so the user can try Save As.
+            delegate?.quickAccessOpen(panel.item)
+        }
     }
     fileprivate func open(_ panel: QuickAccessPanel) { delegate?.quickAccessOpen(panel.item) }
     fileprivate func annotate(_ panel: QuickAccessPanel) { delegate?.quickAccessAnnotate(panel.item) }

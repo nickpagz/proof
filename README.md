@@ -14,7 +14,7 @@ waiting in the corner of your screen, ready to drag into a chat, a document or a
 ## Why we built it
 
 A good screenshot tool shouldn't be another subscription. Proof does the parts of a paid
-screenshot app that people use every day, with Apple's frameworks and nothing else, and keeps every
+screenshot app that people use every day and keeps every
 capture on your Mac unless you decide to share it.
 
 ## What it does
@@ -48,7 +48,10 @@ capture on your Mac unless you decide to share it.
   and share a VideoPress link (or to its media library when the site has no VideoPress). Settings → Sharing picks the service
   for each button. The link is copied, and Settings → Sharing keeps a list of recent shares where
   you can copy a link again or delete the upload.
-- **Saves** PNG, JPEG or HEIC to your Downloads folder (or anywhere), named the way you like.
+- **Saves** PNG, JPEG, HEIC or lossless WebP to your Downloads folder (or anywhere). Choose WebP
+  under Settings → Screenshots → File Format, or end the filename in `.webp` in Save As.
+  WebP preserves the exported pixel dimensions but doesn’t store Proof’s Retina DPI. For images
+  over 16,383 pixels on either side, choose PNG or another format.
 - **Works with your keyboard**: ⇧⌘3, ⇧⌘4 and ⇧⌘5 by default, every action rebindable, and
   `proof://` links for Raycast, Alfred and Shortcuts.
 - Talks to GitHub once a day to look for a new version. No analytics, nothing else.
@@ -114,7 +117,8 @@ recordings stop by themselves after 2 minutes. It's off until you turn it on.
 
 ## For developers
 
-Proof is written in Swift with Apple frameworks only and builds with SwiftPM; no Xcode project.
+Proof is written in Swift and builds with SwiftPM; no Xcode project or Homebrew required.
+It uses Apple frameworks and bundles libwebp for local WebP export.
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) covers building, the headless test commands, signing
 and releases. The build, signing and self-update machinery comes from
 [Loominate](https://github.com/a8cteam51/loominate).

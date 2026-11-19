@@ -198,9 +198,19 @@ enum HeadlessCapture {
         guard let kind = args.first else { CLI.fail("usage: Proof --capture fullscreen|area|window …") }
         let prefs = Preferences.load()
         var options = ImageExporter.Options(prefs)
+        // The headless capture contract remains PNG/JPEG/HEIC.
+        if options.format == .webp { options.format = .png }
         if let format = CLI.value("--format", in: args) {
-            guard let parsed = ImageFormat(rawValue: format) else { CLI.fail("unknown format \(format)") }
+            guard let parsed = ImageFormat(rawValue: format), parsed != .webp else {
+                CLI.fail("unsupported capture format \(format); use png, jpeg or heic")
+            }
             options.format = parsed
+        }
+        let requestedURL = CLI.value("--out", in: args).map {
+            URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)
+        }
+        if requestedURL?.pathExtension.lowercased() == "webp" {
+            CLI.fail("headless capture does not support WebP; use the editor’s Save As instead")
         }
         if args.contains("--1x") { options.scaleTo1x = true }
         if args.contains("--no-srgb") { options.convertToSRGB = false }
@@ -238,8 +248,8 @@ enum HeadlessCapture {
         }
 
         let url: URL
-        if let out = CLI.value("--out", in: args) {
-            url = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
+        if let requestedURL {
+            url = requestedURL
         } else {
             let name = FileNaming.name(template: prefs.fileNameTemplate, date: capture.date, appName: capture.appName, kind: capture.kind)
             url = FileNaming.uniqueURL(in: prefs.saveFolder, name: name, ext: options.format.fileExtension)

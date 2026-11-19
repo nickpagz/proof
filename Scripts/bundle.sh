@@ -54,6 +54,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Scripts/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+NOTICES="$APP/Contents/Resources/Licenses/libwebp"
+mkdir -p "$NOTICES"
+cp "$ROOT/Vendor/libwebp/"{AUTHORS,COPYING,PATENTS} "$NOTICES/"
 for asset in AppIcon.icns MenuBarIcon.png MenuBarIcon@2x.png; do
     [[ -f "$ROOT/Assets/$asset" ]] && cp "$ROOT/Assets/$asset" "$APP/Contents/Resources/$asset"
 done

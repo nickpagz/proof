@@ -79,7 +79,7 @@ final class SharingController {
         let prefs = prefs()
         var options = ImageExporter.Options(prefs)
         // HEIC doesn't open everywhere a link might be pasted; PNG and JPEG do.
-        if options.format == .heic { options.format = .png }
+        if options.format != .jpeg { options.format = .png }
         let name = FileNaming.sanitize(editor.fileURL?.deletingPathExtension().lastPathComponent ?? editor.title)
         let fileURL = AppInfo.draftsFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
             .appendingPathComponent(uploadName(name, for: provider)).appendingPathExtension(options.format.fileExtension)

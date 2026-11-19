@@ -196,7 +196,7 @@ private struct CaptureSettings: View {
                 Picker("File format", selection: $state.prefs.format) {
                     ForEach(ImageFormat.allCases) { Text($0.label).tag($0) }
                 }
-                if state.prefs.format != .png {
+                if state.prefs.format == .jpeg || state.prefs.format == .heic {
                     LabeledContent("Quality") {
                         Slider(value: $state.prefs.jpegQuality, in: 0.4...1.0)
                     }

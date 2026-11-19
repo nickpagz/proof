@@ -47,10 +47,13 @@ hotkey / menu / proof:// ─► SelectionOverlay (one window per display; area, 
              ScreenGrabber (ScreenCaptureKit; Proof's windows and Finder's desktop icons excluded)
                                    │ Capture (CGImage + point size)
                                    ▼
-        AppState.finish ─► ImageExporter (PNG/JPEG/HEIC, 1x, sRGB, DPI) ─► captures folder
+        AppState.finish ─► ImageExporter (PNG/JPEG/HEIC/WebP, 1x, sRGB) ─► captures folder
                        └─► clipboard          └─► QuickAccessController (thumbnail, drag out)
 ```
 
+- SwiftPM compiles [the pinned libwebp sources](../Vendor/libwebp/UPSTREAM.md) into Proof.
+  The app bundle includes the upstream notices. Proof writes lossless WebP with an ICC profile
+  when available, but without DPI metadata, so reopened WebPs use pixel size as point size.
 - The editor keeps annotations as objects in image points (`AnnotationDocument`); crop and
   background only change the layout around them. `AnnotationRenderer` draws the canvas and every
   export with the same code, so the saved file matches the screen. Pixelate and blur read the
