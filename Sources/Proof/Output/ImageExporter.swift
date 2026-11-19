@@ -5,6 +5,24 @@ import UniformTypeIdentifiers
 
 /// Encodes captures to files and the clipboard.
 enum ImageExporter {
+    private static let writableAVIF: UTType? = {
+        let identifier = "public.avif"
+        let writable = CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []
+        return writable.contains(identifier) ? UTType(identifier) : nil
+    }()
+
+    private static func contentType(for format: ImageFormat) -> UTType? {
+        switch format {
+        case .png: return .png
+        case .jpeg: return .jpeg
+        case .heic: return .heic
+        case .avif: return writableAVIF
+        }
+    }
+
+    static let writableFormats = ImageFormat.allCases.filter { contentType(for: $0) != nil }
+    static let saveContentTypes = writableFormats.compactMap { contentType(for: $0) }
+
     struct Options {
         var format: ImageFormat = .png
         var jpegQuality: Double = 0.9
@@ -47,16 +65,14 @@ enum ImageExporter {
     }
 
     static func data(for image: CGImage, pointSize: CGSize, options: Options) throws -> Data {
+        let label = options.format.label
+        guard let type = contentType(for: options.format) else {
+            throw ExportError.encodeFailed("no encoder for \(label)")
+        }
         let prepared = prepare(image, pointSize: pointSize, options: options)
         let data = NSMutableData()
-        let type: UTType
-        switch options.format {
-        case .png: type = .png
-        case .jpeg: type = .jpeg
-        case .heic: type = .heic
-        }
         guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else {
-            throw ExportError.encodeFailed("no encoder for \(options.format.label)")
+            throw ExportError.encodeFailed("no encoder for \(label)")
         }
         // DPI metadata makes Retina captures open at their point size in Preview and browsers.
         let dpi = 72.0 * Double(prepared.width) / max(Double(pointSize.width), 1)

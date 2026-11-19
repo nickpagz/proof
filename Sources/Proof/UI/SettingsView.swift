@@ -194,7 +194,7 @@ private struct CaptureSettings: View {
         Form {
             Section("Format") {
                 Picker("File format", selection: $state.prefs.format) {
-                    ForEach(ImageFormat.allCases) { Text($0.label).tag($0) }
+                    ForEach(ImageExporter.writableFormats) { Text($0.label).tag($0) }
                 }
                 if state.prefs.format != .png {
                     LabeledContent("Quality") {

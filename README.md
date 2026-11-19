@@ -49,6 +49,8 @@ capture on your Mac unless you decide to share it.
   for each button. The link is copied, and Settings → Sharing keeps a list of recent shares where
   you can copy a link again or delete the upload.
 - **Saves** PNG, JPEG or HEIC to your Downloads folder (or anywhere), named the way you like.
+  When macOS provides an AVIF encoder, choose AVIF under Settings → Screenshots → File Format,
+  or end the filename in `.avif` in Save As.
 - **Works with your keyboard**: ⇧⌘3, ⇧⌘4 and ⇧⌘5 by default, every action rebindable, and
   `proof://` links for Raycast, Alfred and Shortcuts.
 - Talks to GitHub once a day to look for a new version. No analytics, nothing else.

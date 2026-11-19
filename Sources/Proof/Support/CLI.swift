@@ -11,7 +11,7 @@ enum CLI {
       --capture fullscreen [--display INDEX]
       --capture area --rect X,Y,W,H       global points, origin top-left of the main display
       --capture window --window SUBSTRING [--no-shadow]
-          common: --out PATH (default: the captures folder)  --format png|jpeg|heic
+          common: --out PATH (default: the captures folder)  --format png|jpeg|heic|avif
                   --1x  --show-icons  --no-srgb
       --displays                          list displays with their global bounds
       --windows                           list capturable windows, frontmost first

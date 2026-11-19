@@ -513,7 +513,7 @@ extension AppState: EditorDelegate {
 
     func editorSaveAs(_ editor: EditorModel, image: CGImage, pointSize: CGSize) -> URL? {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg, .heic]
+        panel.allowedContentTypes = ImageExporter.saveContentTypes
         panel.directoryURL = editor.fileURL?.deletingLastPathComponent() ?? prefs.saveFolder
         panel.nameFieldStringValue = (editor.fileURL?.deletingPathExtension().lastPathComponent ?? editor.title) + "." + prefs.format.fileExtension
         // The extension picks the format, so keep it visible and editable.
