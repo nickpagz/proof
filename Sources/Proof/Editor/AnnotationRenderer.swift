@@ -340,9 +340,10 @@ final class AnnotationRenderer {
             path.addLine(to: at(shaftEnd, -half))
             path.addLine(to: at(start, -half))
             path.closeSubpath()
+            // Match the shaft's winding so the overlap stays filled.
             path.move(to: end)
-            path.addLine(to: at(base, halfHead))
             path.addLine(to: at(base, -halfHead))
+            path.addLine(to: at(base, halfHead))
             path.closeSubpath()
         case .tapered:
             let tail = max(1, width * 0.25), neck = width * 0.9
