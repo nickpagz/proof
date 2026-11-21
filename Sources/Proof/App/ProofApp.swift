@@ -258,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func showSettings(tab: SettingsTab? = nil) {
         if let tab { state.settingsTab = tab }
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: SettingsView.windowSize),
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "Proof Settings"
             window.isReleasedWhenClosed = false

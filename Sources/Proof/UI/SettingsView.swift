@@ -1,26 +1,81 @@
 import AppKit
 import SwiftUI
 
-enum SettingsTab: Hashable {
+enum SettingsTab: CaseIterable, Hashable {
     case general, screenshots, recording, quickAccess, sharing, shortcuts, agents, updates
+
+    var item: (title: LocalizedStringKey, icon: String) {
+        switch self {
+        case .general: ("General", "gearshape")
+        case .screenshots: ("Screenshots", "camera.viewfinder")
+        case .recording: ("Recording", "record.circle")
+        case .quickAccess: ("Quick Access", "square.on.square")
+        case .sharing: ("Sharing", "link")
+        case .shortcuts: ("Shortcuts", "command")
+        case .agents: ("Agents", "sparkles")
+        case .updates: ("Updates", "arrow.down.circle")
+        }
+    }
 }
 
 struct SettingsView: View {
+    static let windowSize = CGSize(width: 640, height: 540)
     @Bindable var state: AppState
 
     var body: some View {
-        TabView(selection: $state.settingsTab) {
-            GeneralSettings(state: state).tabItem { Label("General", systemImage: "gearshape") }.tag(SettingsTab.general)
-            CaptureSettings(state: state).tabItem { Label("Screenshots", systemImage: "camera.viewfinder") }.tag(SettingsTab.screenshots)
-            RecordingSettings(state: state).tabItem { Label("Recording", systemImage: "record.circle") }.tag(SettingsTab.recording)
-            QuickAccessSettings(state: state).tabItem { Label("Quick Access", systemImage: "square.on.square") }.tag(SettingsTab.quickAccess)
-            SharingSettings(state: state, sharing: state.sharing).tabItem { Label("Sharing", systemImage: "link") }.tag(SettingsTab.sharing)
-            ShortcutSettings(state: state).tabItem { Label("Shortcuts", systemImage: "command") }.tag(SettingsTab.shortcuts)
-            AgentSettings(state: state, agents: state.agents).tabItem { Label("Agents", systemImage: "sparkles") }.tag(SettingsTab.agents)
-            UpdateSettings(state: state).tabItem { Label("Updates", systemImage: "arrow.down.circle") }.tag(SettingsTab.updates)
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    tabButton(tab)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Settings sections")
+
+            Divider()
+
+            pane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 600)
-        .frame(minHeight: 520)
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+    }
+
+    private func tabButton(_ tab: SettingsTab) -> some View {
+        let selected = state.settingsTab == tab
+        return Button {
+            state.settingsTab = tab
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: tab.item.icon)
+                    .font(.system(size: 19))
+                    .accessibilityHidden(true)
+                Text(tab.item.title)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(selected ? Color.accentColor : Color.primary)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(selected ? Color.accentColor.opacity(0.14) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @ViewBuilder private var pane: some View {
+        switch state.settingsTab {
+        case .general: GeneralSettings(state: state)
+        case .screenshots: CaptureSettings(state: state)
+        case .recording: RecordingSettings(state: state)
+        case .quickAccess: QuickAccessSettings(state: state)
+        case .sharing: SharingSettings(state: state, sharing: state.sharing)
+        case .shortcuts: ShortcutSettings(state: state)
+        case .agents: AgentSettings(state: state, agents: state.agents)
+        case .updates: UpdateSettings(state: state)
+        }
     }
 }
 
