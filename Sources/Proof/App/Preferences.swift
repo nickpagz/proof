@@ -1,7 +1,7 @@
 import Foundation
 
 enum ImageFormat: String, CaseIterable, Codable, Identifiable {
-    case png, jpeg, heic, avif
+    case png, jpeg, heic, avif, webp
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -9,6 +9,7 @@ enum ImageFormat: String, CaseIterable, Codable, Identifiable {
         case .jpeg: return "JPEG"
         case .heic: return "HEIC"
         case .avif: return "AVIF"
+        case .webp: return "WebP"
         }
     }
     var fileExtension: String {
@@ -17,6 +18,7 @@ enum ImageFormat: String, CaseIterable, Codable, Identifiable {
         case .jpeg: return "jpg"
         case .heic: return "heic"
         case .avif: return "avif"
+        case .webp: return "webp"
         }
     }
 }

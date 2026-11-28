@@ -92,9 +92,11 @@ enum SelfTest {
                 check("encode \(format.label)", false, "no data")
                 continue
             }
-            if format == .avif {
-                check("encode AVIF keeps pixels and file type", decoded.width == 200 && decoded.height == 100
-                      && (CGImageSourceGetType(source) as String?) == "public.avif")
+            // Neither stores DPI, so check the pixels and the file type instead.
+            if format == .avif || format == .webp {
+                let type = format == .avif ? "public.avif" : "org.webmproject.webp"
+                check("encode \(format.label) keeps pixels and file type", decoded.width == 200 && decoded.height == 100
+                      && (CGImageSourceGetType(source) as String?) == type)
                 continue
             }
             let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]

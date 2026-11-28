@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CProofWebP
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -17,6 +18,8 @@ enum ImageExporter {
         case .jpeg: return .jpeg
         case .heic: return .heic
         case .avif: return writableAVIF
+        // Encoded by the bundled libwebp, not ImageIO, so always available.
+        case .webp: return .webP
         }
     }
 
@@ -70,6 +73,7 @@ enum ImageExporter {
             throw ExportError.encodeFailed("no encoder for \(label)")
         }
         let prepared = prepare(image, pointSize: pointSize, options: options)
+        if options.format == .webp { return try webPData(for: prepared) }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else {
             throw ExportError.encodeFailed("no encoder for \(label)")
@@ -90,10 +94,55 @@ enum ImageExporter {
         return data as Data
     }
 
-    static func write(_ image: CGImage, pointSize: CGSize, to url: URL, options: Options) throws {
+    private static func webPData(for image: CGImage) throws -> Data {
+        let width = image.width, height = image.height
+        let limit = Int(ProofWebPMaxDimension())
+        guard width > 0, height > 0, width <= limit, height <= limit else {
+            throw ExportError.encodeFailed("WebP supports up to \(limit) pixels per side; choose another format for larger images")
+        }
+        let colorSpace = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
+            ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        let stride = width * 4
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: stride, space: colorSpace, bitmapInfo: bitmapInfo),
+              let rgba = context.data?.assumingMemoryBound(to: UInt8.self) else {
+            throw ExportError.encodeFailed("couldn't allocate the WebP pixel buffer")
+        }
+        context.setBlendMode(.copy)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let profile = colorSpace.copyICCData().map { $0 as Data } ?? Data()
+        var output: UnsafeMutablePointer<UInt8>?
+        let count = withExtendedLifetime(context) {
+            profile.withUnsafeBytes {
+                ProofWebPEncode(rgba, Int32(width), Int32(height), Int32(stride),
+                               $0.bindMemory(to: UInt8.self).baseAddress, $0.count, &output)
+            }
+        }
+        guard let output else { throw ExportError.encodeFailed("the WebP encoder failed") }
+        guard count > 0 else {
+            ProofWebPFree(output)
+            throw ExportError.encodeFailed("the WebP encoder wrote no data")
+        }
+        return Data(bytesNoCopy: output, count: count, deallocator: .custom { ptr, _ in ProofWebPFree(ptr) })
+    }
+
+    enum FilenameFormats {
+        // CLI, agent, and sharing callers keep their original suffix rules.
+        case classic
+        case editor
+    }
+
+    static func write(_ image: CGImage, pointSize: CGSize, to url: URL, options: Options,
+                      filenameFormats: FilenameFormats = .classic) throws {
         var options = options
-        if let format = ImageFormat.allCases.first(where: { $0.fileExtension == url.pathExtension.lowercased() }) {
-            options.format = format
+        switch (url.pathExtension.lowercased(), filenameFormats) {
+        case ("png", _): options.format = .png
+        case ("jpg", _), ("jpeg", .editor), ("jpe", .editor): options.format = .jpeg
+        case ("heic", _): options.format = .heic
+        case ("avif", _): options.format = .avif
+        case ("webp", .editor): options.format = .webp
+        default: break
         }
         let data = try data(for: image, pointSize: pointSize, options: options)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

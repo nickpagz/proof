@@ -106,10 +106,16 @@ final class QuickAccessController {
     fileprivate func save(_ panel: QuickAccessPanel) {
         if panel.item.savedURL != nil {
             delegate?.quickAccessReveal(panel.item)
+            return
+        }
+        delegate?.quickAccessSave(panel.item)
+        panel.refreshButtons()
+        if panel.item.savedURL != nil {
+            panel.flash("Saved")
         } else {
-            delegate?.quickAccessSave(panel.item)
-            panel.refreshButtons()
-            panel.flash(panel.item.savedURL != nil ? "Saved" : "Couldn’t save")
+            panel.flash("Couldn’t save")
+            // Keep the thumbnail and open the editor so the user can try Save As.
+            delegate?.quickAccessOpen(panel.item)
         }
     }
     fileprivate func shareDestinations() -> [(ShareVisibility, ProviderKind)] {
