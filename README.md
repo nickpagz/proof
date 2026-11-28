@@ -43,6 +43,9 @@ capture on your Mac unless you decide to share it.
   highlighter, pixelate and blur for anything private, spotlight, crop, and a background tool
   that puts the capture on a gradient with padding, rounded corners and a shadow. Everything
   stays editable until you save, with full undo. Single-key tools: V R F O L A T X B S N M P H C.
+- **Crop**: resize freely, lock an aspect ratio like 16:9, or enter a fixed width and height in
+  pixels and drag the crop box into place. Custom crops save at the entered size even with
+  Scale to 1× on. Turn off Background before applying a Custom crop.
 - **Shares** with two buttons in the editor, each titled with the service it uploads to: CloudUp
   (an unlisted link of its own) or your WordPress.com site's media library, under a random file
   name by default so the link doesn't give away what it is. Recordings go to the site's VideoPress

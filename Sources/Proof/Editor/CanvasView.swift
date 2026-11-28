@@ -11,7 +11,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         case resizing(UUID, handle: Handle)
         case crop(anchor: CGPoint)
         case cropMove(offset: CGPoint)
-        case cropResize(handle: Handle)
+        case cropResize(handle: Handle, original: CGRect, offset: CGPoint)
     }
     enum Handle: CaseIterable { case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left, start, end }
 
@@ -119,12 +119,17 @@ final class CanvasView: NSView, NSTextViewDelegate {
         context.setLineWidth(2 * s)
         context.stroke(r)
         context.setFillColor(NSColor.white.cgColor)
-        for (_, p) in rectHandles(crop) {
-            let v = layout.toOutput(p)
-            context.fill(CGRect(x: v.x - 5 * s, y: v.y - 5 * s, width: 10 * s, height: 10 * s))
+        for (_, p) in model.cropFormat == .custom ? [] : rectHandles(crop) {
+            let edge = layout.toOutput(p)
+            let half = 5 * s
+            // Keep the grab points visible when the selection touches the image boundary.
+            let v = CGPoint(x: min(max(edge.x, bounds.minX + half), bounds.maxX - half),
+                            y: min(max(edge.y, bounds.minY + half), bounds.maxY - half))
+            context.fill(CGRect(x: v.x - half, y: v.y - half, width: 2 * half, height: 2 * half))
         }
         context.restoreGState()
-        let label = NSAttributedString(string: "\(Int(crop.width * model.document.scale)) × \(Int(crop.height * model.document.scale)) px", attributes: [
+        let pixels = model.cropPixelSize(of: crop)
+        let label = NSAttributedString(string: "\(pixels.width) × \(pixels.height) px", attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 11 * s, weight: .medium), .foregroundColor: NSColor.white,
         ])
         label.draw(at: CGPoint(x: r.minX + 6 * s, y: r.minY + 6 * s))
@@ -152,6 +157,28 @@ final class CanvasView: NSView, NSTextViewDelegate {
         return list.first { hypot($0.1.x - p.x, $0.1.y - p.y) < slop }?.0
     }
 
+    /// Match the entire crop border, favoring a corner when both a horizontal and a vertical edge are close.
+    static func cropHandle(at point: CGPoint, in rect: CGRect, tolerance: CGFloat) -> Handle? {
+        guard rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point) else { return nil }
+        let left = abs(point.x - rect.minX), right = abs(point.x - rect.maxX)
+        let top = abs(point.y - rect.minY), bottom = abs(point.y - rect.maxY)
+        let nearSide = min(left, right) <= tolerance
+        let nearEnd = min(top, bottom) <= tolerance
+        switch (nearSide, nearEnd) {
+        case (true, true):
+            return top <= bottom ? (left <= right ? .topLeft : .topRight)
+                                 : (left <= right ? .bottomLeft : .bottomRight)
+        case (true, false): return left <= right ? .left : .right
+        case (false, true): return top <= bottom ? .top : .bottom
+        case (false, false): return nil
+        }
+    }
+
+    private func cropHandle(at point: CGPoint, in rect: CGRect) -> Handle? {
+        guard model.cropFormat != .custom else { return nil }
+        return Self.cropHandle(at: point, in: rect, tolerance: 10 * pointsPerScreenPoint)
+    }
+
     private static func resize(_ r: CGRect, _ handle: Handle, to p: CGPoint) -> CGRect {
         var minX = r.minX, minY = r.minY, maxX = r.maxX, maxY = r.maxY
         switch handle {
@@ -168,6 +195,25 @@ final class CanvasView: NSView, NSTextViewDelegate {
         return CGRect(x: min(minX, maxX), y: min(minY, maxY), width: abs(maxX - minX), height: abs(maxY - minY))
     }
 
+    private func resizeLockedCrop(_ rect: CGRect, _ handle: Handle, to point: CGPoint, ratio: CGFloat) -> CGRect {
+        let dx: CGFloat
+        let dy: CGFloat
+        switch handle {
+        case .topLeft, .left, .bottomLeft: dx = -1
+        case .topRight, .right, .bottomRight: dx = 1
+        default: dx = 0
+        }
+        switch handle {
+        case .topLeft, .top, .topRight: dy = -1
+        case .bottomLeft, .bottom, .bottomRight: dy = 1
+        default: dy = 0
+        }
+        let anchor = CGPoint(x: dx < 0 ? rect.maxX : dx > 0 ? rect.minX : rect.midX,
+                             y: dy < 0 ? rect.maxY : dy > 0 ? rect.minY : rect.midY)
+        return CropGeometry.lockedDrag(from: anchor, to: point, dx: dx, dy: dy,
+                                       ratio: ratio, in: model.document.imageSize)
+    }
+
     // MARK: Mouse
 
     private func topAnnotation(at p: CGPoint) -> Annotation? {
@@ -182,11 +228,11 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
         if cropping {
             guard let crop = model.pendingCrop else { return }
-            if let h = handle(at: p, in: rectHandles(crop)) {
-                drag = .cropResize(handle: h)
+            if let h = cropHandle(at: p, in: crop), let grip = rectHandles(crop).first(where: { $0.0 == h })?.1 {
+                drag = .cropResize(handle: h, original: crop, offset: CGPoint(x: p.x - grip.x, y: p.y - grip.y))
             } else if crop.contains(p) {
                 drag = .cropMove(offset: CGPoint(x: p.x - crop.minX, y: p.y - crop.minY))
-            } else {
+            } else if model.cropFormat != .custom {
                 drag = .crop(anchor: clampToImage(p))
             }
             return
@@ -246,15 +292,22 @@ final class CanvasView: NSView, NSTextViewDelegate {
         switch drag {
         case .crop(let anchor):
             p = clampToImage(p)
-            model.pendingCrop = CGRect(x: min(anchor.x, p.x), y: min(anchor.y, p.y), width: abs(p.x - anchor.x), height: abs(p.y - anchor.y))
+            if let ratio = model.cropFormat.ratio {
+                let rect = CropGeometry.lockedDrag(from: anchor, to: p, dx: p.x < anchor.x ? -1 : 1,
+                                                   dy: p.y < anchor.y ? -1 : 1, ratio: ratio, in: model.document.imageSize)
+                model.pendingCrop = rect
+            } else {
+                model.pendingCrop = CGRect(x: min(anchor.x, p.x), y: min(anchor.y, p.y), width: abs(p.x - anchor.x), height: abs(p.y - anchor.y))
+            }
         case .cropMove(let offset):
-            guard let crop = model.pendingCrop else { return }
-            let size = model.document.imageSize
-            let x = min(max(p.x - offset.x, 0), size.width - crop.width), y = min(max(p.y - offset.y, 0), size.height - crop.height)
-            model.pendingCrop = CGRect(x: x, y: y, width: crop.width, height: crop.height)
-        case .cropResize(let handle):
-            guard let crop = model.pendingCrop else { return }
-            model.pendingCrop = Self.resize(crop, handle, to: clampToImage(p))
+            model.moveCrop(to: CGPoint(x: p.x - offset.x, y: p.y - offset.y))
+        case .cropResize(let handle, let original, let offset):
+            p = CGPoint(x: p.x - offset.x, y: p.y - offset.y)
+            if let ratio = model.cropFormat.ratio {
+                model.pendingCrop = resizeLockedCrop(original, handle, to: p, ratio: ratio)
+            } else {
+                model.pendingCrop = Self.resize(original, handle, to: clampToImage(p))
+            }
         case .creating(let id):
             model.updateDuringGesture { doc in
                 guard let i = doc.annotations.firstIndex(where: { $0.id == id }) else { return }
@@ -308,7 +361,12 @@ final class CanvasView: NSView, NSTextViewDelegate {
         case .resizing:
             model.endGesture("Resize")
         case .crop:
-            if let crop = model.pendingCrop, crop.width < 4 || crop.height < 4 { model.resetCrop() }
+            if !model.canApplyCrop || (model.cropFormat == .freeform && (model.pendingCrop.map { $0.width < 4 || $0.height < 4 } ?? false)) {
+                let full = CGRect(origin: .zero, size: model.document.imageSize)
+                model.pendingCrop = model.cropFormat.ratio.map { CropGeometry.fit($0, inside: full) } ?? full
+            }
+        case .cropResize(_, let original, _):
+            if !model.canApplyCrop { model.pendingCrop = original }
         default:
             break
         }
@@ -335,9 +393,17 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     private func updateCursor(at p: CGPoint) {
         if cropping || model.tool == .select {
-            if let crop = model.pendingCrop, cropping, crop.contains(p) { NSCursor.openHand.set(); return }
+            if cropping, let crop = model.pendingCrop {
+                switch cropHandle(at: p, in: crop) {
+                case .left, .right: NSCursor.resizeLeftRight.set(); return
+                case .top, .bottom: NSCursor.resizeUpDown.set(); return
+                case .topLeft, .topRight, .bottomLeft, .bottomRight: NSCursor.crosshair.set(); return
+                default: break
+                }
+                if crop.contains(p) { NSCursor.openHand.set(); return }
+            }
             if !cropping, topAnnotation(at: p) != nil { NSCursor.openHand.set(); return }
-            if cropping { NSCursor.crosshair.set(); return }
+            if cropping, model.cropFormat != .custom { NSCursor.crosshair.set(); return }
             NSCursor.arrow.set()
         } else if model.tool == .text {
             NSCursor.iBeam.set()

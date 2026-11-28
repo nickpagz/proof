@@ -38,7 +38,15 @@ final class EditorModel: ShareSink {
         didSet {
             guard tool != oldValue else { return }
             if oldValue == .crop { pendingCrop = nil }
-            if tool == .crop { pendingCrop = document.crop ?? CGRect(origin: .zero, size: document.imageSize); selection = nil }
+            if tool == .crop {
+                pendingCrop = document.visibleRect
+                let exact = document.exactCropSize
+                cropFormat = .freeform
+                cropWidth = exact.map { String($0.width) } ?? ""
+                cropHeight = exact.map { String($0.height) } ?? ""
+                if exact != nil { cropFormat = .custom }
+                selection = nil
+            }
             onToolChange?()
             needsDisplay()
         }
@@ -54,6 +62,9 @@ final class EditorModel: ShareSink {
     var selection: UUID? { didSet { if selection != oldValue { syncStyleFromSelection(); needsDisplay() } } }
     /// The crop being adjusted while the crop tool is active, in image points.
     var pendingCrop: CGRect? { didSet { needsDisplay() } }
+    private(set) var cropFormat: CropFormat = .freeform
+    var cropWidth = "" { didSet { previewCustomCrop() } }
+    var cropHeight = "" { didSet { previewCustomCrop() } }
     var showBackgroundPanel = false
     /// Zoom chosen in the bottom bar; nil fits the window.
     var zoom: CGFloat?
@@ -195,16 +206,108 @@ final class EditorModel: ShareSink {
 
     // MARK: Crop and background
 
-    func applyCrop() {
+    private var fullImage: CGRect { CGRect(origin: .zero, size: document.imageSize) }
+    private var pixelsPerPoint: CGSize {
+        CGSize(width: CGFloat(renderer.image.width) / document.imageSize.width,
+               height: CGFloat(renderer.image.height) / document.imageSize.height)
+    }
+
+    func cropPixelSize(of rect: CGRect) -> CropPixelSize {
+        CropPixelSize(width: Int((rect.width * pixelsPerPoint.width).rounded()),
+                      height: Int((rect.height * pixelsPerPoint.height).rounded()))
+    }
+
+    private var enteredCropSize: CropPixelSize? {
+        guard let width = Int(cropWidth.trimmingCharacters(in: .whitespaces)),
+              let height = Int(cropHeight.trimmingCharacters(in: .whitespaces)),
+              width > 0, height > 0 else { return nil }
+        return CropPixelSize(width: width, height: height)
+    }
+
+    private var validCustomCropSize: CropPixelSize? {
+        guard let size = enteredCropSize, size.width <= renderer.image.width, size.height <= renderer.image.height else { return nil }
+        return size
+    }
+
+    var cropProblem: String? {
+        guard cropFormat == .custom else { return nil }
+        if document.background.enabled { return "Turn off Background to apply an exact-size crop." }
+        if enteredCropSize == nil { return "Enter a positive whole number for width and height." }
+        if validCustomCropSize == nil { return "Maximum size: \(renderer.image.width) × \(renderer.image.height) px." }
+        return nil
+    }
+
+    var canApplyCrop: Bool {
+        guard let rect = pendingCrop, cropProblem == nil else { return false }
+        let pixels = cropPixelSize(of: rect)
+        return pixels.width > 0 && pixels.height > 0
+    }
+
+    func selectCropFormat(_ format: CropFormat) {
+        guard format != cropFormat else { return }
+        let rect = pendingCrop ?? fullImage
+        let pixels = cropPixelSize(of: rect)
+        // Seed the fields from the selection when first switching to Custom.
+        if format == .custom, cropWidth.isEmpty, cropHeight.isEmpty {
+            cropWidth = String(max(1, pixels.width))
+            cropHeight = String(max(1, pixels.height))
+        }
+        cropFormat = format
+        if let ratio = format.ratio {
+            let fitted = CropGeometry.fit(ratio, inside: rect)
+            let size = cropPixelSize(of: fitted)
+            pendingCrop = size.width > 0 && size.height > 0 ? fitted : CropGeometry.fit(ratio, inside: fullImage)
+        } else if format == .custom {
+            previewCustomCrop()
+        }
+    }
+
+    private func previewCustomCrop() {
+        guard tool == .crop, cropFormat == .custom, let size = validCustomCropSize else { return }
+        let rect = pendingCrop ?? fullImage
+        let scale = pixelsPerPoint
+        let origin = CGPoint(x: rect.midX - CGFloat(size.width) / scale.width / 2,
+                             y: rect.midY - CGFloat(size.height) / scale.height / 2)
+        pendingCrop = customRect(size, at: origin)
+    }
+
+    private func customRect(_ size: CropPixelSize, at origin: CGPoint) -> CGRect {
+        let scale = pixelsPerPoint
+        let x = min(max(0, (origin.x * scale.width).rounded()), CGFloat(renderer.image.width - size.width))
+        let y = min(max(0, (origin.y * scale.height).rounded()), CGFloat(renderer.image.height - size.height))
+        return CGRect(x: x / scale.width, y: y / scale.height,
+                      width: CGFloat(size.width) / scale.width, height: CGFloat(size.height) / scale.height)
+    }
+
+    func moveCrop(to origin: CGPoint) {
         guard let rect = pendingCrop else { return }
-        let full = CGRect(origin: .zero, size: document.imageSize)
-        let clipped = rect.intersection(full).integral
-        mutate("Crop") { $0.crop = (clipped == full || clipped.width < 4 || clipped.height < 4) ? nil : clipped }
+        if cropFormat == .custom {
+            guard let size = validCustomCropSize else { return }
+            pendingCrop = customRect(size, at: origin)
+        } else {
+            pendingCrop = CropGeometry.positioned(rect.size, at: origin, in: document.imageSize)
+        }
+    }
+
+    func applyCrop() {
+        guard canApplyCrop, let rect = pendingCrop else { return }
+        let exact = cropFormat == .custom ? validCustomCropSize : nil
+        let full = fullImage
+        let freeform = cropFormat == .freeform
+        let clipped = freeform ? rect.intersection(full).integral : rect
+        let clearsCrop = exact == nil && (clipped == full || (freeform && (clipped.width < 4 || clipped.height < 4)))
+        mutate("Crop") {
+            $0.crop = clearsCrop ? nil : clipped
+            $0.exactCropSize = exact
+        }
         tool = .select
     }
 
     func resetCrop() {
-        pendingCrop = CGRect(origin: .zero, size: document.imageSize)
+        cropFormat = .freeform
+        cropWidth = ""
+        cropHeight = ""
+        pendingCrop = fullImage
     }
 
     func cancelCrop() {
@@ -212,7 +315,13 @@ final class EditorModel: ShareSink {
     }
 
     func setBackground(_ change: (inout BackgroundSettings) -> Void) {
-        mutate("Background") { change(&$0.background) }
+        var background = document.background
+        change(&background)
+        if background.enabled, document.exactCropSize != nil {
+            errorMessage = "To add a Background, first switch Crop to Freeform or a preset and apply it."
+            return
+        }
+        mutate("Background") { $0.background = background }
     }
 
     // MARK: Output
